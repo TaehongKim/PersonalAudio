@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Moon, Sun, Bell, Lock, HardDrive, Info } from "lucide-react"
+import { useState, FormEvent } from "react"
+import { Moon, Sun, Bell, Lock, HardDrive, Info, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
@@ -10,8 +10,13 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useTheme } from "@/contexts/ThemeContext"
+import { type CheckedState } from "@radix-ui/react-checkbox"
 
-export function SettingsManager() {
+interface SettingsManagerProps {
+  handleLogout?: () => void;
+}
+
+export function SettingsManager({ handleLogout }: SettingsManagerProps) {
   const { theme, toggleTheme } = useTheme()
   const isDark = theme === "dark"
 
@@ -22,6 +27,73 @@ export function SettingsManager() {
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [passwordError, setPasswordError] = useState("")
+  const [passwordSuccess, setPasswordSuccess] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+
+  const handleNotifyDownloadChange = (checked: CheckedState) => {
+    setNotifyDownloadComplete(checked === true)
+  }
+
+  const handleNotifyErrorsChange = (checked: CheckedState) => {
+    setNotifyErrors(checked === true)
+  }
+
+  const handleNotifyUpdatesChange = (checked: CheckedState) => {
+    setNotifyUpdates(checked === true)
+  }
+
+  const handlePasswordChange = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setPasswordError("")
+    setPasswordSuccess("")
+    
+    if (!currentPassword) {
+      setPasswordError("현재 비밀번호를 입력해주세요.")
+      return
+    }
+    
+    if (!newPassword) {
+      setPasswordError("새 비밀번호를 입력해주세요.")
+      return
+    }
+    
+    if (newPassword !== confirmPassword) {
+      setPasswordError("새 비밀번호와 확인 비밀번호가 일치하지 않습니다.")
+      return
+    }
+    
+    try {
+      setIsLoading(true)
+      
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          currentPassword, 
+          newPassword 
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setPasswordSuccess("비밀번호가 성공적으로 변경되었습니다.")
+        setCurrentPassword("")
+        setNewPassword("")
+        setConfirmPassword("")
+      } else {
+        setPasswordError(data.message || "비밀번호 변경 실패")
+      }
+    } catch (error) {
+      console.error("비밀번호 변경 오류:", error)
+      setPasswordError("비밀번호 변경 중 오류가 발생했습니다.")
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <div
@@ -32,6 +104,22 @@ export function SettingsManager() {
       </div>
 
       <div className="space-y-6 max-w-3xl mx-auto">
+        {/* 로그아웃 버튼 */}
+        {handleLogout && (
+          <Card className={isDark ? "bg-white/5 border-white/10" : "bg-white border-gray-200"}>
+            <CardContent className="py-4">
+              <Button 
+                variant="destructive" 
+                className="w-full flex items-center justify-center" 
+                onClick={handleLogout}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                로그아웃
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+        
         {/* 테마 설정 */}
         <Card className={isDark ? "bg-white/5 border-white/10" : "bg-white border-gray-200"}>
           <CardHeader className="pb-2">
@@ -58,7 +146,7 @@ export function SettingsManager() {
               <Checkbox
                 id="notify-download"
                 checked={notifyDownloadComplete}
-                onCheckedChange={setNotifyDownloadComplete}
+                onCheckedChange={handleNotifyDownloadChange}
               />
               <label
                 htmlFor="notify-download"
@@ -68,7 +156,11 @@ export function SettingsManager() {
               </label>
             </div>
             <div className="flex items-center space-x-2">
-              <Checkbox id="notify-errors" checked={notifyErrors} onCheckedChange={setNotifyErrors} />
+              <Checkbox 
+                id="notify-errors" 
+                checked={notifyErrors} 
+                onCheckedChange={handleNotifyErrorsChange} 
+              />
               <label
                 htmlFor="notify-errors"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
@@ -77,7 +169,11 @@ export function SettingsManager() {
               </label>
             </div>
             <div className="flex items-center space-x-2">
-              <Checkbox id="notify-updates" checked={notifyUpdates} onCheckedChange={setNotifyUpdates} />
+              <Checkbox 
+                id="notify-updates" 
+                checked={notifyUpdates} 
+                onCheckedChange={handleNotifyUpdatesChange} 
+              />
               <label
                 htmlFor="notify-updates"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
@@ -125,7 +221,7 @@ export function SettingsManager() {
             <CardTitle className="text-lg">비밀번호 변경</CardTitle>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={handlePasswordChange}>
               <div className="space-y-2">
                 <label htmlFor="current-password" className="text-sm">
                   현재 비밀번호
@@ -175,10 +271,25 @@ export function SettingsManager() {
                   }
                 />
               </div>
+              
+              {passwordError && (
+                <div className="text-sm text-red-400 bg-red-900/20 p-2 rounded">
+                  {passwordError}
+                </div>
+              )}
+              
+              {passwordSuccess && (
+                <div className="text-sm text-green-400 bg-green-900/20 p-2 rounded">
+                  {passwordSuccess}
+                </div>
+              )}
+              
               <Button
+                type="submit"
+                disabled={isLoading}
                 className={isDark ? "w-full bg-blue-600 hover:bg-blue-700" : "w-full bg-blue-500 hover:bg-blue-600"}
               >
-                비밀번호 변경
+                {isLoading ? "비밀번호 변경 중..." : "비밀번호 변경"}
               </Button>
             </form>
           </CardContent>

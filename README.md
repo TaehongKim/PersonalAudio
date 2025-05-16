@@ -26,10 +26,10 @@ YC_mp3_Web은 유튜브 및 멜론 차트의 음악을 모바일 기기에서도
 npm install -g pnpm
 ```
 
-### 2. Next.js 프로젝트 생성
+### 2. Next.js 프로젝트 생성(프로젝트 폴더 상위에서 시작작)
 ```bash
 # 주의: 프로젝트 이름에 대문자가 포함되면 안 됩니다! (예: personal-audio)
-pnpm create next-app personal-audio
+pnpm create next-app@latest personal-audio
 ```
 
 설치 중 옵션 선택:
@@ -72,6 +72,12 @@ pnpm dlx shadcn-ui@latest init
 - `clsx`
 - `tailwind-merge`
 - `class-variance-authority`
+
+```bash
+pnpm dlx shadcn-ui add button
+pnpm dlx shadcn-ui add card
+```
+
 
 ### 6. Prisma 설치 및 초기화
 ```bash

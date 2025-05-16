@@ -1,13 +1,13 @@
 // Prisma 스키마 파일
-// DB: MySQL
+// DB: SQLite
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 model File {
