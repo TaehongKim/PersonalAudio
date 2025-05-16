@@ -1,0 +1,55 @@
+// Prisma 스키마 파일
+// DB: MySQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model File {
+  id            String    @id @default(cuid())
+  title         String
+  artist        String?
+  fileType      String    // MP3, MP4 등
+  fileSize      Int
+  duration      Int?      // 재생 시간 (초)
+  path          String    // 서버 파일 시스템 경로
+  thumbnailPath String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  downloads     Int       @default(0)
+  shares        Share[]   // 공유 링크 관계
+}
+
+model Share {
+  id           String    @id @default(cuid())
+  shortCode    String    @unique
+  expiresAt    DateTime?
+  maxDownloads Int?
+  downloads    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  files        File[]
+}
+
+model Settings {
+  id             String    @id @default(cuid())
+  password       String    // 해시된 비밀번호
+  excludeKeywords String?
+  storageLimit   Int
+  darkMode       Boolean   @default(false)
+}
+
+model DownloadQueue {
+  id        String    @id @default(cuid())
+  url       String
+  type      String
+  status    String
+  progress  Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  error     String?
+} 
