@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { createWriteStream } from 'fs';
-import { pipeline } from 'stream/promises';
+// import { pipeline } from 'stream/promises';
 import https from 'https';
 import http from 'http';
 

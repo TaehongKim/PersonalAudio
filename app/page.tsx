@@ -14,11 +14,12 @@ import { MobileNavigation } from "../components/MobileNavigation"
 import { HomeContent } from "../components/HomeContent"
 import { useMediaQuery } from "@/hooks/use-mobile"
 import { ThemeProvider } from "@/contexts/ThemeContext"
+import { PlayerProvider } from "@/contexts/PlayerContext"
 
 export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [activeTab, setActiveTab] = useState("youtube") // 기본 탭을 youtube로 변경
-  const [shareCode, setShareCode] = useState<string | null>(null) // 공유 링크 코드
+  const [shareCode] = useState<string | null>(null) // 공유 링크 코드
   const isMobile = useMediaQuery("(max-width: 768px)")
 
   // 페이지 로드 시 로그인 상태 확인
@@ -47,34 +48,38 @@ export default function Home() {
   if (shareCode) {
     return (
       <ThemeProvider>
-        <div className="flex flex-col h-screen">
-          <div className="flex flex-1 overflow-hidden">
-            <ShareLinkAccess />
+        <PlayerProvider>
+          <div className="flex flex-col h-screen">
+            <div className="flex flex-1 overflow-hidden">
+              <ShareLinkAccess code={shareCode || ''} />
+            </div>
+            <PlayerControls />
           </div>
-          <PlayerControls />
-        </div>
+        </PlayerProvider>
       </ThemeProvider>
     )
   }
 
   return (
     <ThemeProvider>
-      <div className="min-h-screen bg-gray-100 dark:bg-zinc-900 dark:text-white flex flex-col">
-        <div className="flex flex-1 overflow-hidden">
-          {!isMobile && <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />}
-          
-          {activeTab === "home" && <HomeContent setActiveTab={setActiveTab} />}
-          {activeTab === "youtube" && <MainContent />}
-          {activeTab === "melon" && <MelonChart />}
-          {activeTab === "files" && <FilesManager />}
-          {activeTab === "shares" && <SharesManager />}
-          {activeTab === "settings" && (
-            <SettingsManager handleLogout={handleLogout} />
-          )}
+      <PlayerProvider>
+        <div className="min-h-screen bg-gray-100 dark:bg-zinc-900 dark:text-white flex flex-col">
+          <div className="flex flex-1 overflow-hidden">
+            {!isMobile && <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />}
+            
+            {activeTab === "home" && <HomeContent setActiveTab={setActiveTab} />}
+            {activeTab === "youtube" && <MainContent />}
+            {activeTab === "melon" && <MelonChart />}
+            {activeTab === "files" && <FilesManager />}
+            {activeTab === "shares" && <SharesManager />}
+            {activeTab === "settings" && (
+              <SettingsManager handleLogout={handleLogout} />
+            )}
+          </div>
+          <PlayerControls />
+          {isMobile && <MobileNavigation activeTab={activeTab} setActiveTab={setActiveTab} />}
         </div>
-        <PlayerControls />
-        {isMobile && <MobileNavigation activeTab={activeTab} setActiveTab={setActiveTab} />}
-      </div>
+      </PlayerProvider>
     </ThemeProvider>
   )
 }

@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
   Download,
   Trash2,
@@ -12,14 +12,12 @@ import {
   Video,
   SortDesc,
   Filter,
-  ChevronRight,
-  ArrowLeft,
-  ListMusic,
-  BarChart2,
   Play,
+  Pause,
   FolderOpen,
+  Loader2,
+  RefreshCw,
 } from "lucide-react"
-import Image from "next/image"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -31,287 +29,151 @@ import {
   BreadcrumbItem,
   BreadcrumbLink,
   BreadcrumbList,
-  BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { usePlayer } from "@/contexts/PlayerContext"
 
-// 파일 그룹 타입 정의
-type FileGroupType = "youtube-playlist" | "youtube-mp3" | "youtube-video" | "melon-chart"
-
-interface FileGroup {
+// API 응답 타입 정의
+interface FileData {
   id: string
-  type: FileGroupType
   title: string
-  count: number
-  size: string
-  date: string
-  coverUrl: string
-  icon: React.ElementType
+  artist: string | null
+  fileType: string
+  fileSize: number
+  duration: number | null
+  thumbnailPath: string | null
+  createdAt: string
+  downloads: number
 }
 
-// 개별 파일 타입 정의
-type FileType = "MP3" | "720p" | "1080p"
-
-interface FileItem {
-  id: string
-  groupId: string
-  title: string
-  artist: string
-  type: FileType
-  size: string
-  duration: string
-  date: string
-  coverUrl: string
+interface FilesResponse {
+  files: FileData[]
+  pagination: {
+    page: number
+    limit: number
+    totalCount: number
+    totalPages: number
+    hasNext: boolean
+    hasPrev: boolean
+  }
+  totalStorageUsed: number
 }
 
-// 파일 그룹 데이터
-const fileGroups: FileGroup[] = [
-  {
-    id: "playlist1",
-    type: "youtube-playlist",
-    title: "K-Pop 히트곡 모음",
-    count: 15,
-    size: "52.3 MB",
-    date: "2023-05-15",
-    coverUrl: "/placeholder.svg?height=80&width=80",
-    icon: ListMusic,
-  },
-  {
-    id: "playlist2",
-    type: "youtube-playlist",
-    title: "재즈 컬렉션",
-    count: 8,
-    size: "28.7 MB",
-    date: "2023-05-10",
-    coverUrl: "/placeholder.svg?height=80&width=80",
-    icon: ListMusic,
-  },
-  {
-    id: "mp3group",
-    type: "youtube-mp3",
-    title: "유튜브 단일 MP3",
-    count: 12,
-    size: "42.5 MB",
-    date: "2023-05-14",
-    coverUrl: "/placeholder.svg?height=80&width=80",
-    icon: Music,
-  },
-  {
-    id: "videogroup",
-    type: "youtube-video",
-    title: "유튜브 영상",
-    count: 5,
-    size: "385.2 MB",
-    date: "2023-05-12",
-    coverUrl: "/placeholder.svg?height=80&width=80",
-    icon: Video,
-  },
-  {
-    id: "melonchart1",
-    type: "melon-chart",
-    title: "멜론 TOP 100 (2023-05-08)",
-    count: 100,
-    size: "320.5 MB",
-    date: "2023-05-08",
-    coverUrl: "/placeholder.svg?height=80&width=80",
-    icon: BarChart2,
-  },
-  {
-    id: "melonchart2",
-    type: "melon-chart",
-    title: "멜론 TOP 50 (2023-05-01)",
-    count: 50,
-    size: "175.2 MB",
-    date: "2023-05-01",
-    coverUrl: "/placeholder.svg?height=80&width=80",
-    icon: BarChart2,
-  },
-]
+interface StatsResponse {
+  totalFiles: number
+  totalStorageUsed: number
+  storageLimit: number
+  storageUsagePercentage: number
+  fileTypeStats: {
+    fileType: string
+    count: number
+    totalSize: number
+  }[]
+  recentFiles: FileData[]
+  popularFiles: FileData[]
+}
 
-// 개별 파일 데이터
-const files: FileItem[] = [
-  {
-    id: "file1",
-    groupId: "playlist1",
-    title: "아이유 - 좋은 날",
-    artist: "IU",
-    type: "MP3",
-    size: "3.2 MB",
-    duration: "3:48",
-    date: "2023-05-15",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-  {
-    id: "file2",
-    groupId: "playlist1",
-    title: "NewJeans - Ditto",
-    artist: "NewJeans",
-    type: "MP3",
-    size: "4.1 MB",
-    duration: "3:05",
-    date: "2023-05-14",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-  {
-    id: "file3",
-    groupId: "playlist1",
-    title: "BTS - Dynamite",
-    artist: "BTS",
-    type: "MP3",
-    size: "3.8 MB",
-    duration: "3:19",
-    date: "2023-05-12",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-  {
-    id: "file4",
-    groupId: "videogroup",
-    title: "BLACKPINK - Pink Venom",
-    artist: "BLACKPINK",
-    type: "720p",
-    size: "78.5 MB",
-    duration: "3:07",
-    date: "2023-05-10",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-  {
-    id: "file5",
-    groupId: "mp3group",
-    title: "TWICE - Feel Special",
-    artist: "TWICE",
-    type: "MP3",
-    size: "3.5 MB",
-    duration: "3:29",
-    date: "2023-05-08",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-  {
-    id: "file6",
-    groupId: "videogroup",
-    title: "BLACKPINK - How You Like That",
-    artist: "BLACKPINK",
-    type: "1080p",
-    size: "124.8 MB",
-    duration: "3:01",
-    date: "2023-05-05",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-  {
-    id: "file7",
-    groupId: "playlist1",
-    title: "TWICE - Fancy",
-    artist: "TWICE",
-    type: "MP3",
-    size: "3.7 MB",
-    duration: "3:34",
-    date: "2023-05-13",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-  {
-    id: "file8",
-    groupId: "playlist1",
-    title: "Red Velvet - Psycho",
-    artist: "Red Velvet",
-    type: "MP3",
-    size: "3.9 MB",
-    duration: "3:42",
-    date: "2023-05-11",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-  {
-    id: "file9",
-    groupId: "playlist2",
-    title: "Chet Baker - My Funny Valentine",
-    artist: "Chet Baker",
-    type: "MP3",
-    size: "4.2 MB",
-    duration: "4:15",
-    date: "2023-05-10",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-  {
-    id: "file10",
-    groupId: "playlist2",
-    title: "Miles Davis - So What",
-    artist: "Miles Davis",
-    type: "MP3",
-    size: "5.1 MB",
-    duration: "5:37",
-    date: "2023-05-09",
-    coverUrl: "/placeholder.svg?height=60&width=60",
-  },
-]
+// 유틸리티 함수들
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 Bytes'
+  const k = 1024
+  const sizes = ['Bytes', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
+const formatDuration = (seconds: number | null): string => {
+  if (!seconds) return '0:00'
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+const formatDate = (dateString: string): string => {
+  return new Date(dateString).toLocaleDateString('ko-KR')
+}
 
 export function FilesManager() {
+  // 상태 관리
+  const [files, setFiles] = useState<FileData[]>([])
+  const [stats, setStats] = useState<StatsResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
-  const [sortBy, setSortBy] = useState("date")
+  const [sortBy, setSortBy] = useState("createdAt")
+  const [sortOrder, setSortOrder] = useState("desc")
   const [filterType, setFilterType] = useState("all")
-  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null)
   const [selectedItems, setSelectedItems] = useState<string[]>([])
-  const [playingFileId, setPlayingFileId] = useState<string | null>(null)
-
-  // 현재 보고 있는 그룹 정보 가져오기
-  const currentGroup = currentGroupId ? fileGroups.find((group) => group.id === currentGroupId) : null
-
-  // 그룹 필터링 및 정렬
-  const filteredGroups = fileGroups.filter((group) => {
-    // 검색어 필터링
-    const matchesSearch = group.title.toLowerCase().includes(searchQuery.toLowerCase())
-
-    // 파일 타입 필터링
-    const matchesType =
-      filterType === "all" ||
-      (filterType === "playlist" && group.type === "youtube-playlist") ||
-      (filterType === "mp3" && group.type === "youtube-mp3") ||
-      (filterType === "video" && group.type === "youtube-video") ||
-      (filterType === "melon" && group.type === "melon-chart")
-
-    return matchesSearch && matchesType
+  const { state: playerState, loadFile, loadPlaylist } = usePlayer()
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pagination, setPagination] = useState<FilesResponse['pagination'] | null>(null)
+  const [processingAction, setProcessingAction] = useState<string | null>(null)
+  const [showShareDialog, setShowShareDialog] = useState(false)
+  const [shareFormData, setShareFormData] = useState({
+    expiresIn: 168 as number | null, // 7일 (시간 단위)
+    maxDownloads: null as number | null
   })
 
-  // 정렬된 그룹
-  const sortedGroups = [...filteredGroups].sort((a, b) => {
-    switch (sortBy) {
-      case "title":
-        return a.title.localeCompare(b.title)
-      case "count":
-        return b.count - a.count
-      case "size":
-        return Number.parseFloat(b.size) - Number.parseFloat(a.size)
-      case "date":
-      default:
-        return new Date(b.date).getTime() - new Date(a.date).getTime()
+  // 데이터 로딩 함수
+  const loadFiles = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: '20',
+        ...(searchQuery && { search: searchQuery }),
+        ...(sortBy && { sortBy }),
+        ...(sortOrder && { sortOrder }),
+        ...(filterType !== 'all' && { fileType: filterType })
+      })
+
+      const response = await fetch(`/api/files?${params}`)
+      if (!response.ok) {
+        throw new Error('파일 목록을 불러오는데 실패했습니다.')
+      }
+
+      const data: FilesResponse = await response.json()
+      setFiles(data.files)
+      setPagination(data.pagination)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.')
+    } finally {
+      setLoading(false)
     }
-  })
+  }, [currentPage, searchQuery, sortBy, sortOrder, filterType])
 
-  // 현재 그룹의 파일 필터링 및 정렬
-  const filteredFiles = files
-    .filter((file) => file.groupId === currentGroupId)
-    .filter((file) => {
-      // 검색어 필터링
-      return (
-        file.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        file.artist.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    })
+  // 통계 데이터 로딩
+  const loadStats = useCallback(async () => {
+    try {
+      const response = await fetch('/api/files/stats')
+      if (!response.ok) {
+        throw new Error('통계 정보를 불러오는데 실패했습니다.')
+      }
 
-  // 정렬된 파일
-  const sortedFiles = [...filteredFiles].sort((a, b) => {
-    switch (sortBy) {
-      case "title":
-        return a.title.localeCompare(b.title)
-      case "artist":
-        return a.artist.localeCompare(b.artist)
-      case "size":
-        return Number.parseFloat(b.size) - Number.parseFloat(a.size)
-      case "date":
-      default:
-        return new Date(b.date).getTime() - new Date(a.date).getTime()
+      const data: StatsResponse = await response.json()
+      setStats(data)
+    } catch (err) {
+      console.error('통계 로딩 오류:', err)
     }
-  })
+  }, [])
 
-  // 아이템 선택 토글
+  // 컴포넌트 마운트 시 데이터 로딩
+  useEffect(() => {
+    loadFiles()
+    loadStats()
+  }, [loadFiles, loadStats])
+
+  // 검색 쿼리 변경 시 첫 페이지로 리셋
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, sortBy, sortOrder, filterType])
+
+  // 파일 액션 함수들
   const toggleItemSelection = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation() // 이벤트 전파 중지
+    e.stopPropagation()
     if (selectedItems.includes(id)) {
       setSelectedItems(selectedItems.filter((itemId) => itemId !== id))
     } else {
@@ -319,50 +181,194 @@ export function FilesManager() {
     }
   }
 
-  // 전체 선택/해제
   const toggleSelectAll = () => {
-    if (currentGroupId) {
-      // 현재 그룹의 파일들
-      const groupFileIds = sortedFiles.map((file) => file.id)
-      if (selectedItems.length === groupFileIds.length) {
-        setSelectedItems([])
-      } else {
-        setSelectedItems(groupFileIds)
-      }
+    const currentFileIds = files.map((file) => file.id)
+    if (selectedItems.length === currentFileIds.length) {
+      setSelectedItems([])
     } else {
-      // 모든 그룹
-      const allGroupIds = sortedGroups.map((group) => group.id)
-      if (selectedItems.length === allGroupIds.length) {
-        setSelectedItems([])
-      } else {
-        setSelectedItems(allGroupIds)
-      }
+      setSelectedItems(currentFileIds)
     }
   }
 
-  // 그룹 열기
-  const openGroup = (groupId: string) => {
-    setCurrentGroupId(groupId)
-    setSelectedItems([])
-  }
+  const handleDownloadFile = async (fileId: string) => {
+    try {
+      setProcessingAction(`download-${fileId}`)
+      const response = await fetch(`/api/files/${fileId}/download`)
+      if (!response.ok) {
+        throw new Error('다운로드에 실패했습니다.')
+      }
 
-  // 그룹 목록으로 돌아가기
-  const goBackToGroups = () => {
-    setCurrentGroupId(null)
-    setSelectedItems([])
-  }
-
-  // 파일 재생 토글
-  const togglePlayFile = (fileId: string, e: React.MouseEvent) => {
-    e.stopPropagation() // 이벤트 전파 중지
-    if (playingFileId === fileId) {
-      setPlayingFileId(null)
-    } else {
-      setPlayingFileId(fileId)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'download'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '다운로드 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
     }
   }
 
-  // 검색어 하이라이트 함수
+  const handleDeleteFile = async (fileId: string) => {
+    if (!confirm('정말로 이 파일을 삭제하시겠습니까?')) return
+
+    try {
+      setProcessingAction(`delete-${fileId}`)
+      const response = await fetch(`/api/files/${fileId}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        throw new Error('파일 삭제에 실패했습니다.')
+      }
+
+      await loadFiles()
+      await loadStats()
+      setSelectedItems(selectedItems.filter(id => id !== fileId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '파일 삭제 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  const handleBulkDownload = async () => {
+    if (selectedItems.length === 0) return
+
+    try {
+      setProcessingAction('bulk-download')
+      const response = await fetch('/api/files/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'download',
+          fileIds: selectedItems
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('대량 다운로드에 실패했습니다.')
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'files.zip'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+
+      setSelectedItems([])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '대량 다운로드 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedItems.length === 0) return
+    if (!confirm(`선택한 ${selectedItems.length}개 파일을 모두 삭제하시겠습니까?`)) return
+
+    try {
+      setProcessingAction('bulk-delete')
+      const response = await fetch('/api/files/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'delete',
+          fileIds: selectedItems
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('대량 삭제에 실패했습니다.')
+      }
+
+      await loadFiles()
+      await loadStats()
+      setSelectedItems([])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '대량 삭제 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  const handleRefresh = () => {
+    loadFiles()
+    loadStats()
+  }
+
+  const togglePlayFile = (file: FileData, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (playerState.currentFile?.id === file.id && playerState.isPlaying) {
+      // 현재 재생 중인 파일이면 플레이어를 통해 일시정지
+      // 이 경우 PlayerControls에서 직접 제어하도록 함
+      return
+    } else {
+      // 새로운 파일 재생
+      loadFile(file)
+    }
+  }
+
+  const playAllFiles = () => {
+    if (files.length > 0) {
+      loadPlaylist(files, 0)
+    }
+  }
+
+  const handleCreateShare = async () => {
+    if (selectedItems.length === 0) {
+      setError('공유할 파일을 선택해주세요.')
+      return
+    }
+
+    try {
+      setProcessingAction('create-share')
+      const response = await fetch('/api/shares', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          fileIds: selectedItems,
+          ...shareFormData
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('공유 링크 생성에 실패했습니다.')
+      }
+
+      const data = await response.json()
+      
+      // 링크 복사
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(data.share.shareUrl)
+      }
+      
+      setSelectedItems([])
+      setShowShareDialog(false)
+      // TODO: 성공 메시지 표시
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '공유 링크 생성 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
   const highlightText = (text: string) => {
     if (!searchQuery) return text
 
@@ -378,37 +384,31 @@ export function FilesManager() {
     )
   }
 
-  // 사용 공간 계산
-  const totalSpace = 1000 // MB
-  const usedSpace = fileGroups.reduce((acc, group) => acc + Number.parseFloat(group.size), 0)
-  const usedPercentage = (usedSpace / totalSpace) * 100
-
-  // 그룹 아이콘 가져오기
-  const getGroupIcon = (type: FileGroupType) => {
-    switch (type) {
-      case "youtube-playlist":
-        return <ListMusic className="h-5 w-5 text-red-400" />
-      case "youtube-mp3":
-        return <Music className="h-5 w-5 text-green-400" />
-      case "youtube-video":
-        return <Video className="h-5 w-5 text-blue-400" />
-      case "melon-chart":
-        return <BarChart2 className="h-5 w-5 text-green-400" />
+  const getFileIcon = (fileType: string) => {
+    if (fileType.toLowerCase().includes('mp3') || fileType.toLowerCase().includes('audio')) {
+      return <Music className="h-4 w-4 text-green-400" />
+    } else {
+      return <Video className="h-4 w-4 text-blue-400" />
     }
   }
 
-  // 그룹 배지 색상 가져오기
-  const getGroupBadgeColor = (type: FileGroupType) => {
-    switch (type) {
-      case "youtube-playlist":
-        return "bg-red-600"
-      case "youtube-mp3":
-        return "bg-green-600"
-      case "youtube-video":
-        return "bg-blue-600"
-      case "melon-chart":
-        return "bg-green-600"
+  const getFileBadgeColor = (fileType: string) => {
+    if (fileType.toLowerCase().includes('mp3') || fileType.toLowerCase().includes('audio')) {
+      return "bg-green-600"
+    } else {
+      return "bg-blue-600"
     }
+  }
+
+  if (loading && files.length === 0) {
+    return (
+      <div className="flex-1 bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8 overflow-y-auto">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin mr-2" />
+          <span>파일 목록을 불러오는 중...</span>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -418,35 +418,32 @@ export function FilesManager() {
         <Breadcrumb className="mb-4">
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbLink onClick={goBackToGroups} className="flex items-center text-gray-300 hover:text-white">
+              <BreadcrumbLink className="flex items-center text-gray-300">
                 <FolderOpen className="h-4 w-4 mr-1" />내 파일
               </BreadcrumbLink>
             </BreadcrumbItem>
-            {currentGroup && (
-              <>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbLink className="text-white">{currentGroup.title}</BreadcrumbLink>
-                </BreadcrumbItem>
-              </>
-            )}
           </BreadcrumbList>
         </Breadcrumb>
 
+        {/* 에러 표시 */}
+        {error && (
+          <div className="mb-4 p-4 bg-red-900/50 border border-red-600 rounded-lg">
+            <p className="text-red-200">{error}</p>
+          </div>
+        )}
+
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div className="flex items-center">
-            {currentGroupId && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="mr-3 border-white/20 hover:bg-white/10 flex items-center"
-                onClick={goBackToGroups}
-              >
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                상위 그룹으로
-              </Button>
-            )}
-            <h1 className="text-3xl font-bold">{currentGroup ? currentGroup.title : "내 파일"}</h1>
+            <h1 className="text-3xl font-bold">내 파일</h1>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-4 border-white/20 hover:bg-white/10"
+              onClick={handleRefresh}
+              disabled={loading}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
           </div>
           <div className="flex flex-wrap gap-2">
             {selectedItems.length > 0 ? (
@@ -455,37 +452,134 @@ export function FilesManager() {
                   variant="outline"
                   className="border-white/20 text-white hover:bg-white/10"
                   onClick={() => setSelectedItems([])}
+                  disabled={processingAction !== null}
                 >
                   취소
                 </Button>
-                <Button className="bg-purple-600 hover:bg-purple-700" onClick={toggleSelectAll}>
-                  {currentGroupId
-                    ? selectedItems.length === sortedFiles.length
-                      ? "전체 선택 해제"
-                      : "전체 선택"
-                    : selectedItems.length === sortedGroups.length
-                      ? "전체 선택 해제"
-                      : "전체 선택"}
+                <Button 
+                  className="bg-purple-600 hover:bg-purple-700" 
+                  onClick={toggleSelectAll}
+                  disabled={processingAction !== null}
+                >
+                  {selectedItems.length === files.length ? "전체 선택 해제" : "전체 선택"}
                 </Button>
-                <Button className="bg-blue-600 hover:bg-blue-700">
-                  <Download className="w-4 h-4 mr-2" />
+                <Button 
+                  className="bg-blue-600 hover:bg-blue-700"
+                  onClick={handleBulkDownload}
+                  disabled={processingAction !== null}
+                >
+                  {processingAction === 'bulk-download' ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
                   다운로드 ({selectedItems.length})
                 </Button>
-                <Button className="bg-red-600 hover:bg-red-700">
-                  <Trash2 className="w-4 h-4 mr-2" />
+                <Button 
+                  className="bg-red-600 hover:bg-red-700"
+                  onClick={handleBulkDelete}
+                  disabled={processingAction !== null}
+                >
+                  {processingAction === 'bulk-delete' ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 mr-2" />
+                  )}
                   삭제 ({selectedItems.length})
                 </Button>
               </>
             ) : (
               <>
-                <Button className="bg-blue-600 hover:bg-blue-700">
-                  <Download className="w-4 h-4 mr-2" />
-                  전체 다운로드
+                <Button 
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={playAllFiles}
+                  disabled={processingAction !== null || files.length === 0}
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  전체 재생
                 </Button>
-                <Button className="bg-purple-600 hover:bg-purple-700">
-                  <Share2 className="w-4 h-4 mr-2" />
-                  공유 링크 생성
-                </Button>
+                <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+                  <DialogTrigger asChild>
+                    <Button 
+                      className="bg-purple-600 hover:bg-purple-700"
+                      disabled={processingAction !== null || selectedItems.length === 0}
+                    >
+                      <Share2 className="w-4 h-4 mr-2" />
+                      공유 링크 생성
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-gray-900 border-gray-800 text-white">
+                    <DialogHeader>
+                      <DialogTitle>공유 링크 생성</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-sm text-gray-400 mb-4">
+                          선택한 {selectedItems.length}개 파일을 공유할 링크를 생성합니다.
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="expiry">만료 시간</Label>
+                        <Select 
+                          value={shareFormData.expiresIn?.toString() || 'null'} 
+                          onValueChange={(value) => setShareFormData(prev => ({
+                            ...prev,
+                            expiresIn: value === 'null' ? null : parseInt(value)
+                          }))}
+                        >
+                          <SelectTrigger className="bg-white/10 border-white/20 text-white">
+                            <SelectValue placeholder="만료일 선택" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                            <SelectItem value="24">1일</SelectItem>
+                            <SelectItem value="168">7일</SelectItem>
+                            <SelectItem value="720">30일</SelectItem>
+                            <SelectItem value="2160">90일</SelectItem>
+                            <SelectItem value="null">무기한</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="maxDownloads">최대 다운로드 횟수</Label>
+                        <Input
+                          type="number"
+                          placeholder="제한 없음"
+                          value={shareFormData.maxDownloads || ''}
+                          onChange={(e) => setShareFormData(prev => ({
+                            ...prev,
+                            maxDownloads: e.target.value ? parseInt(e.target.value) : null
+                          }))}
+                          className="bg-white/10 border-white/20 text-white"
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          className="border-white/20 text-white hover:bg-white/10"
+                          onClick={() => setShowShareDialog(false)}
+                          disabled={processingAction !== null}
+                        >
+                          취소
+                        </Button>
+                        <Button 
+                          className="bg-purple-600 hover:bg-purple-700"
+                          onClick={handleCreateShare}
+                          disabled={processingAction !== null}
+                        >
+                          {processingAction === 'create-share' ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Share2 className="w-4 h-4 mr-2" />
+                          )}
+                          공유 링크 생성
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </>
             )}
           </div>
@@ -495,14 +589,18 @@ export function FilesManager() {
           <div className="relative col-span-1 md:col-span-2">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
-              placeholder={currentGroupId ? "파일 검색..." : "그룹 검색..."}
+              placeholder="파일 검색..."
               className="bg-white/10 border-white/20 text-white pl-10"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
           <div className="flex gap-2">
-            <Select value={sortBy} onValueChange={setSortBy}>
+            <Select value={`${sortBy}-${sortOrder}`} onValueChange={(value) => {
+              const [field, order] = value.split('-')
+              setSortBy(field)
+              setSortOrder(order)
+            }}>
               <SelectTrigger className="bg-white/10 border-white/20 text-white">
                 <div className="flex items-center">
                   <SortDesc className="w-4 h-4 mr-2" />
@@ -510,14 +608,14 @@ export function FilesManager() {
                 </div>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="date">날짜순</SelectItem>
-                <SelectItem value="title">제목순</SelectItem>
-                {currentGroupId ? (
-                  <SelectItem value="artist">아티스트순</SelectItem>
-                ) : (
-                  <SelectItem value="count">파일 수</SelectItem>
-                )}
-                <SelectItem value="size">크기순</SelectItem>
+                <SelectItem value="createdAt-desc">최신순</SelectItem>
+                <SelectItem value="createdAt-asc">오래된순</SelectItem>
+                <SelectItem value="title-asc">제목순 (가나다)</SelectItem>
+                <SelectItem value="title-desc">제목순 (하바타)</SelectItem>
+                <SelectItem value="artist-asc">아티스트순 (가나다)</SelectItem>
+                <SelectItem value="fileSize-desc">크기순 (큰 것부터)</SelectItem>
+                <SelectItem value="fileSize-asc">크기순 (작은 것부터)</SelectItem>
+                <SelectItem value="downloads-desc">인기순</SelectItem>
               </SelectContent>
             </Select>
             <Select value={filterType} onValueChange={setFilterType}>
@@ -529,232 +627,168 @@ export function FilesManager() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">모든 파일</SelectItem>
-                <SelectItem value="playlist">유튜브 플레이리스트</SelectItem>
-                <SelectItem value="mp3">유튜브 MP3</SelectItem>
-                <SelectItem value="video">유튜브 영상</SelectItem>
-                <SelectItem value="melon">멜론 차트</SelectItem>
+                <SelectItem value="mp3">MP3</SelectItem>
+                <SelectItem value="mp4">비디오</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
 
-        <div className="bg-white/5 rounded-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
-          <div>
-            <p className="text-sm text-gray-400">저장 공간</p>
-            <p className="font-medium">
-              {usedSpace.toFixed(1)} MB 사용 중 ({totalSpace} MB 중)
-            </p>
-          </div>
-          <div className="w-full md:w-1/2 flex items-center gap-4">
-            <Progress value={usedPercentage} className="h-2 flex-1" />
-            <div className="relative w-16 h-16 flex-shrink-0">
-              <div className="absolute inset-0 rounded-full bg-white/10"></div>
-              <svg className="w-16 h-16 transform -rotate-90">
-                <circle
-                  cx="32"
-                  cy="32"
-                  r="28"
-                  stroke="currentColor"
-                  strokeWidth="8"
-                  fill="transparent"
-                  className="text-purple-600"
-                  strokeDasharray={`${usedPercentage * 1.76} 176`}
-                />
-              </svg>
-              <div className="absolute inset-0 flex items-center justify-center text-sm font-medium">
-                {usedPercentage.toFixed(0)}%
+        {stats && (
+          <div className="bg-white/5 rounded-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
+            <div>
+              <p className="text-sm text-gray-400">저장 공간</p>
+              <p className="font-medium">
+                {formatFileSize(stats.totalStorageUsed)} 사용 중 ({formatFileSize(stats.storageLimit)} 중)
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                총 {stats.totalFiles}개 파일
+              </p>
+            </div>
+            <div className="w-full md:w-1/2 flex items-center gap-4">
+              <Progress value={stats.storageUsagePercentage} className="h-2 flex-1" />
+              <div className="relative w-16 h-16 flex-shrink-0">
+                <div className="absolute inset-0 rounded-full bg-white/10"></div>
+                <svg className="w-16 h-16 transform -rotate-90">
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    stroke="currentColor"
+                    strokeWidth="8"
+                    fill="transparent"
+                    className="text-purple-600"
+                    strokeDasharray={`${stats.storageUsagePercentage * 1.76} 176`}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center text-sm font-medium">
+                  {stats.storageUsagePercentage.toFixed(0)}%
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* 그룹 상세 보기에서 상위 그룹으로 돌아가는 버튼 (모바일용) */}
-      {currentGroupId && (
-        <Button
-          variant="outline"
-          className="w-full mb-4 border-white/20 hover:bg-white/10 md:hidden"
-          onClick={goBackToGroups}
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          상위 그룹으로 돌아가기
-        </Button>
-      )}
-
-      {/* 그룹 목록 또는 파일 목록 표시 */}
-      {currentGroupId ? (
-        // 파일 목록 표시
-        <>
-          {sortedFiles.length === 0 ? (
-            <div className="text-center py-12 bg-white/5 rounded-lg">
-              <p className="text-gray-400">파일을 찾을 수 없습니다.</p>
-              {searchQuery && <p className="text-sm text-gray-500 mt-2">검색어: "{searchQuery}"</p>}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {sortedFiles.map((file) => (
-                <Card key={file.id} className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors">
-                  <CardContent className="p-3">
-                    <div className="flex items-center">
-                      <div className="mr-3" onClick={(e) => toggleItemSelection(file.id, e)}>
-                        <input
-                          type="checkbox"
-                          checked={selectedItems.includes(file.id)}
-                          onChange={(e) => e.stopPropagation()}
-                          className="h-4 w-4 rounded border-gray-500 bg-transparent"
-                        />
-                      </div>
-                      <div className="relative">
-                        <Image
-                          src={file.coverUrl || "/placeholder.svg"}
-                          width={60}
-                          height={60}
-                          alt={`${file.title} cover`}
-                          className="rounded mr-3"
-                        />
-                        {file.type === "MP3" ? (
-                          <Music className="absolute bottom-0 right-0 w-4 h-4 bg-green-600 rounded-full p-0.5" />
-                        ) : (
-                          <Video className="absolute bottom-0 right-0 w-4 h-4 bg-blue-600 rounded-full p-0.5" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0 mr-2">
-                        <p className="font-medium truncate">{highlightText(file.title)}</p>
-                        <p className="text-sm text-gray-400">
-                          {highlightText(file.artist)} • {file.duration}
-                        </p>
-                        <div className="flex items-center text-xs text-gray-500 mt-1">
-                          <Badge
-                            className={`mr-2 ${
-                              file.type === "MP3"
-                                ? "bg-green-700"
-                                : file.type === "720p"
-                                  ? "bg-blue-700"
-                                  : "bg-purple-700"
-                            }`}
-                          >
-                            {file.type}
-                          </Badge>
-                          <span>{file.size}</span>
-                          <span className="mx-1">•</span>
-                          <span>{file.date}</span>
-                        </div>
-                      </div>
-                      <div className="flex space-x-1">
-                        {file.type === "MP3" && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            onClick={(e) => togglePlayFile(file.id, e)}
-                          >
-                            <Play
-                              className={`h-4 w-4 ${playingFileId === file.id ? "text-green-400" : ""}`}
-                              fill={playingFileId === file.id ? "currentColor" : "none"}
-                            />
-                          </Button>
-                        )}
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-900/20"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {/* 그룹 상세 보기에서 상위 그룹으로 돌아가는 버튼 (하단 고정) */}
-          <div className="mt-6 sticky bottom-4 flex justify-center">
-            <Button
-              variant="outline"
-              className="border-white/20 bg-black/50 backdrop-blur-sm hover:bg-white/10"
-              onClick={goBackToGroups}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              상위 그룹으로 돌아가기
-            </Button>
-          </div>
-        </>
+      {/* 파일 목록 표시 */}
+      {files.length === 0 && !loading ? (
+        <div className="text-center py-12 bg-white/5 rounded-lg">
+          <p className="text-gray-400">파일을 찾을 수 없습니다.</p>
+          {searchQuery && <p className="text-sm text-gray-500 mt-2">검색어: &quot;{searchQuery}&quot;</p>}
+        </div>
       ) : (
-        // 그룹 목록 표시
-        <>
-          {sortedGroups.length === 0 ? (
-            <div className="text-center py-12 bg-white/5 rounded-lg">
-              <p className="text-gray-400">파일 그룹을 찾을 수 없습니다.</p>
-              {searchQuery && <p className="text-sm text-gray-500 mt-2">검색어: "{searchQuery}"</p>}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {sortedGroups.map((group) => (
-                <Card
-                  key={group.id}
-                  className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors cursor-pointer"
-                  onClick={() => openGroup(group.id)}
-                >
-                  <CardContent className="p-3">
-                    <div className="flex items-center">
-                      <div className="mr-3" onClick={(e) => toggleItemSelection(group.id, e)}>
-                        <input
-                          type="checkbox"
-                          checked={selectedItems.includes(group.id)}
-                          onChange={(e) => e.stopPropagation()}
-                          className="h-4 w-4 rounded border-gray-500 bg-transparent"
-                        />
-                      </div>
-                      <div className="relative">
-                        <div className="w-16 h-16 bg-white/10 rounded flex items-center justify-center mr-3">
-                          {getGroupIcon(group.type)}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0 mr-2">
-                        <p className="font-medium truncate">{highlightText(group.title)}</p>
-                        <div className="flex items-center text-sm text-gray-400 mt-1">
-                          <Badge className={`mr-2 ${getGroupBadgeColor(group.type)}`}>
-                            {group.type === "youtube-playlist"
-                              ? "플레이리스트"
-                              : group.type === "youtube-mp3"
-                                ? "MP3"
-                                : group.type === "youtube-video"
-                                  ? "영상"
-                                  : "멜론 차트"}
-                          </Badge>
-                          <span>파일 {group.count}개</span>
-                          <span className="mx-1">•</span>
-                          <span>{group.size}</span>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">{group.date}</p>
-                      </div>
-                      <div className="flex space-x-1">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-900/20"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                        <ChevronRight className="h-4 w-4 text-gray-400" />
-                      </div>
+        <div className="space-y-2">
+          {files.map((file) => (
+            <Card key={file.id} className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors">
+              <CardContent className="p-3">
+                <div className="flex items-center">
+                  <div className="mr-3" onClick={(e) => toggleItemSelection(file.id, e)}>
+                    <input
+                      type="checkbox"
+                      checked={selectedItems.includes(file.id)}
+                      onChange={(e) => e.stopPropagation()}
+                      className="h-4 w-4 rounded border-gray-500 bg-transparent"
+                    />
+                  </div>
+                  <div className="relative">
+                    <div className="w-14 h-14 bg-white/10 rounded mr-3 flex items-center justify-center">
+                      {getFileIcon(file.fileType)}
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </>
+                  </div>
+                  <div className="flex-1 min-w-0 mr-2">
+                    <p className="font-medium truncate">{highlightText(file.title)}</p>
+                    <p className="text-sm text-gray-400">
+                      {highlightText(file.artist || '알 수 없는 아티스트')} • {formatDuration(file.duration)}
+                    </p>
+                    <div className="flex items-center text-xs text-gray-500 mt-1">
+                      <Badge className={`mr-2 ${getFileBadgeColor(file.fileType)}`}>
+                        {file.fileType.toUpperCase()}
+                      </Badge>
+                      <span>{formatFileSize(file.fileSize)}</span>
+                      <span className="mx-1">•</span>
+                      <span>{formatDate(file.createdAt)}</span>
+                      <span className="mx-1">•</span>
+                      <span>다운로드 {file.downloads}회</span>
+                    </div>
+                  </div>
+                  <div className="flex space-x-1">
+                    {file.fileType.toLowerCase().includes('mp3') && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={(e) => togglePlayFile(file, e)}
+                      >
+                        {playerState.currentFile?.id === file.id && playerState.isPlaying ? (
+                          <Pause className="h-4 w-4 text-green-400" fill="currentColor" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                    <Button 
+                      size="icon" 
+                      variant="ghost" 
+                      className="h-8 w-8" 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDownloadFile(file.id)
+                      }}
+                      disabled={processingAction === `download-${file.id}`}
+                    >
+                      {processingAction === `download-${file.id}` ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteFile(file.id)
+                      }}
+                      disabled={processingAction === `delete-${file.id}`}
+                    >
+                      {processingAction === `delete-${file.id}` ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+      
+      {/* 페이지네이션 */}
+      {pagination && pagination.totalPages > 1 && (
+        <div className="mt-6 flex justify-center items-center gap-4">
+          <Button
+            variant="outline"
+            className="border-white/20 hover:bg-white/10"
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            disabled={!pagination.hasPrev || loading}
+          >
+            이전
+          </Button>
+          <span className="text-sm text-gray-400">
+            {pagination.page} / {pagination.totalPages} 페이지
+          </span>
+          <Button
+            variant="outline"
+            className="border-white/20 hover:bg-white/10"
+            onClick={() => setCurrentPage(prev => prev + 1)}
+            disabled={!pagination.hasNext || loading}
+          >
+            다음
+          </Button>
+        </div>
       )}
     </div>
   )

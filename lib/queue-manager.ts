@@ -185,4 +185,15 @@ export async function getRecentCompletedDownloads(limit = 10) {
     },
     take: limit,
   });
-} 
+}
+
+// queueManager 객체 export
+export const queueManager = {
+  add: addToQueue,
+  getStatus: getDownloadStatus,
+  cancel: cancelDownload,
+  cleanup: cleanupOldDownloads,
+  getAllPending: getAllPendingDownloads,
+  getAllProcessing: getAllProcessingDownloads,
+  getRecentCompleted: getRecentCompletedDownloads
+}; 

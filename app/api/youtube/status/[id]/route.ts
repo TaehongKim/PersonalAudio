@@ -9,10 +9,10 @@ ensureServerInitialized();
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json({
@@ -35,7 +35,7 @@ export async function GET(
     const isPlaylist = queueItem.type === DownloadType.PLAYLIST_MP3 || 
                        queueItem.type === DownloadType.PLAYLIST_VIDEO;
 
-    let responseData: any = {
+    const responseData: Record<string, unknown> = {
       id: queueItem.id,
       status: queueItem.status,
       progress: queueItem.progress,

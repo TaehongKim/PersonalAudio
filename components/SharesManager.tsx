@@ -1,69 +1,137 @@
 "use client"
 
-import { useState } from "react"
-import { Trash2, Copy, RefreshCw, QrCode, Clock, Link, ExternalLink, MoreVertical } from "lucide-react"
+import { useState, useEffect, useCallback } from "react"
+import { Trash2, Copy, RefreshCw, Clock, ExternalLink, MoreVertical, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import Image from "next/image"
+import { Label } from "@/components/ui/label"
 
-interface ShareLink {
+interface ShareData {
   id: string
-  name: string
-  url: string
   shortCode: string
   expiresAt: string | null
-  createdAt: string
+  maxDownloads: number | null
   downloads: number
-  fileCount: number
+  createdAt: string
+  files: {
+    id: string
+    title: string
+    artist: string | null
+    fileType: string
+    fileSize: number
+    duration: number | null
+  }[]
+  isExpired: boolean
+  isDownloadLimitReached: boolean
 }
 
-const shareLinks: ShareLink[] = [
-  {
-    id: "1",
-    name: "K-Pop 컬렉션",
-    url: "https://ycmp3.com/share/abc123",
-    shortCode: "abc123",
-    expiresAt: "2023-06-15",
-    createdAt: "2023-05-15",
-    downloads: 12,
-    fileCount: 5,
-  },
-  {
-    id: "2",
-    name: "BTS 앨범",
-    url: "https://ycmp3.com/share/def456",
-    shortCode: "def456",
-    expiresAt: null,
-    createdAt: "2023-05-10",
-    downloads: 8,
-    fileCount: 3,
-  },
-  {
-    id: "3",
-    name: "BLACKPINK 뮤직비디오",
-    url: "https://ycmp3.com/share/ghi789",
-    shortCode: "ghi789",
-    expiresAt: "2023-07-01",
-    createdAt: "2023-05-05",
-    downloads: 24,
-    fileCount: 4,
-  },
-]
+interface ShareFormData {
+  expiresIn: number | null
+  maxDownloads: number | null
+}
 
 export function SharesManager() {
+  const [shares, setShares] = useState<ShareData[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [selectedShareId, setSelectedShareId] = useState<string | null>(null)
-  const [newExpiryDate, setNewExpiryDate] = useState<string>("7days")
+  const [processingAction, setProcessingAction] = useState<string | null>(null)
+  const [formData, setFormData] = useState<ShareFormData>({
+    expiresIn: 168, // 7일 (시간 단위)
+    maxDownloads: null
+  })
 
-  const handleCopyLink = (url: string) => {
-    navigator.clipboard.writeText(url)
-    // 여기에 복사 성공 알림을 추가할 수 있습니다
+  // 공유 목록 로딩
+  const loadShares = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const response = await fetch('/api/shares')
+      if (!response.ok) {
+        throw new Error('공유 목록을 불러오는데 실패했습니다.')
+      }
+
+      const data = await response.json()
+      setShares(data.shares)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadShares()
+  }, [loadShares])
+
+  // 링크 복사
+  const handleCopyLink = async (shortCode: string) => {
+    try {
+      const url = `${window.location.origin}/share/${shortCode}`
+      await navigator.clipboard.writeText(url)
+      // TODO: 성공 토스트 메시지 추가
+    } catch (err) {
+      console.error('링크 복사 실패:', err)
+      // TODO: 에러 토스트 메시지 추가
+    }
   }
 
+  // 공유 삭제
+  const handleDeleteShare = async (shareId: string) => {
+    if (!confirm('정말로 이 공유 링크를 삭제하시겠습니까?')) return
+
+    try {
+      setProcessingAction(`delete-${shareId}`)
+      const response = await fetch(`/api/shares/[id]?id=${shareId}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        throw new Error('공유 링크 삭제에 실패했습니다.')
+      }
+
+      await loadShares()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '공유 링크 삭제 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  // 만료일 변경
+  const handleUpdateExpiry = async () => {
+    if (!selectedShareId) return
+
+    try {
+      setProcessingAction(`update-${selectedShareId}`)
+      const response = await fetch(`/api/shares/[id]?id=${selectedShareId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+      })
+
+      if (!response.ok) {
+        throw new Error('공유 링크 수정에 실패했습니다.')
+      }
+
+      await loadShares()
+      setSelectedShareId(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '공유 링크 수정 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  // 만료일 표시 텍스트
   const getExpiryText = (expiresAt: string | null) => {
     if (!expiresAt) return "무기한"
 
@@ -78,7 +146,9 @@ export function SharesManager() {
     return `${diffDays}일 남음`
   }
 
-  const getExpiryColor = (expiresAt: string | null) => {
+  // 만료일 상태에 따른 색상
+  const getExpiryColor = (expiresAt: string | null, isExpired: boolean) => {
+    if (isExpired) return "bg-red-600"
     if (!expiresAt) return "bg-green-600"
 
     const expiry = new Date(expiresAt)
@@ -86,9 +156,33 @@ export function SharesManager() {
     const diffTime = expiry.getTime() - now.getTime()
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
 
-    if (diffDays < 0) return "bg-red-600"
     if (diffDays <= 3) return "bg-yellow-600"
     return "bg-blue-600"
+  }
+
+  // 파일 크기 포맷팅
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+  }
+
+  // 날짜 포맷팅
+  const formatDate = (dateString: string): string => {
+    return new Date(dateString).toLocaleDateString('ko-KR')
+  }
+
+  if (loading) {
+    return (
+      <div className="flex-1 bg-gradient-to-b from-blue-900 to-black text-white p-4 md:p-8 overflow-y-auto">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin mr-2" />
+          <span>공유 목록을 불러오는 중...</span>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -96,153 +190,227 @@ export function SharesManager() {
       <div className="mb-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold">공유 관리</h1>
-          <Button className="bg-blue-600 hover:bg-blue-700">
-            <Link className="w-4 h-4 mr-2" />새 공유 링크 생성
+          <Button 
+            className="bg-blue-600 hover:bg-blue-700"
+            onClick={loadShares}
+            disabled={loading}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            새로고침
           </Button>
         </div>
+
+        {/* 에러 표시 */}
+        {error && (
+          <div className="mb-4 p-4 bg-red-900/50 border border-red-600 rounded-lg">
+            <p className="text-red-200">{error}</p>
+          </div>
+        )}
 
         <p className="text-gray-400 mb-6">
           생성한 공유 링크를 관리하고 QR 코드를 생성할 수 있습니다. 링크는 만료일에 자동으로 비활성화됩니다.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {shareLinks.map((share) => (
-          <Card key={share.id} className="bg-white/5 border-white/10">
-            <CardContent className="p-4">
-              <div className="flex justify-between items-start mb-3">
-                <h3 className="font-semibold text-lg truncate pr-2">{share.name}</h3>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button size="icon" variant="ghost" className="h-8 w-8">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 text-white">
-                    <DropdownMenuItem className="hover:bg-gray-700" onClick={() => handleCopyLink(share.url)}>
-                      <Copy className="h-4 w-4 mr-2" />
-                      링크 복사
-                    </DropdownMenuItem>
-                    <DropdownMenuItem className="hover:bg-gray-700" onClick={() => setSelectedShareId(share.id)}>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      만료일 변경
-                    </DropdownMenuItem>
-                    <DropdownMenuItem className="hover:bg-gray-700 text-red-400">
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      삭제
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-
-              <div className="flex items-center mb-3">
-                <Badge className={`mr-2 ${getExpiryColor(share.expiresAt)}`}>
-                  <Clock className="w-3 h-3 mr-1" />
-                  {getExpiryText(share.expiresAt)}
-                </Badge>
-                <Badge className="bg-purple-600">파일 {share.fileCount}개</Badge>
-              </div>
-
-              <div className="flex items-center bg-black/30 rounded p-2 mb-3">
-                <Input
-                  value={share.url}
-                  readOnly
-                  className="bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0 h-auto text-sm"
-                />
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-6 w-6 ml-1 hover:bg-white/10"
-                  onClick={() => handleCopyLink(share.url)}
-                >
-                  <Copy className="h-3 w-3" />
-                </Button>
-              </div>
-
-              <div className="text-xs text-gray-400">
-                <div className="flex justify-between mb-1">
-                  <span>생성일</span>
-                  <span>{share.createdAt}</span>
+      {shares.length === 0 ? (
+        <div className="text-center py-12 bg-white/5 rounded-lg">
+          <p className="text-gray-400">생성된 공유 링크가 없습니다.</p>
+          <p className="text-sm text-gray-500 mt-2">파일 관리에서 파일을 선택하여 공유 링크를 생성해보세요.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {shares.map((share) => (
+            <Card key={share.id} className="bg-white/5 border-white/10">
+              <CardContent className="p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <h3 className="font-semibold text-lg truncate pr-2">
+                    {share.files.length > 0 ? share.files[0].title : '제목 없음'}
+                    {share.files.length > 1 && ` 외 ${share.files.length - 1}곡`}
+                  </h3>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="h-8 w-8"
+                        disabled={processingAction?.includes(share.id)}
+                      >
+                        {processingAction?.includes(share.id) ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <MoreVertical className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 text-white">
+                      <DropdownMenuItem 
+                        className="hover:bg-gray-700" 
+                        onClick={() => handleCopyLink(share.shortCode)}
+                      >
+                        <Copy className="h-4 w-4 mr-2" />
+                        링크 복사
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        className="hover:bg-gray-700" 
+                        onClick={() => setSelectedShareId(share.id)}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        설정 변경
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        className="hover:bg-gray-700 text-red-400"
+                        onClick={() => handleDeleteShare(share.id)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        삭제
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-                <div className="flex justify-between">
-                  <span>다운로드 횟수</span>
-                  <span>{share.downloads}회</span>
+
+                <div className="flex items-center mb-3 gap-2 flex-wrap">
+                  <Badge className={`${getExpiryColor(share.expiresAt, share.isExpired)}`}>
+                    <Clock className="w-3 h-3 mr-1" />
+                    {getExpiryText(share.expiresAt)}
+                  </Badge>
+                  <Badge className="bg-purple-600">파일 {share.files.length}개</Badge>
+                  {share.maxDownloads && (
+                    <Badge className={`${share.isDownloadLimitReached ? 'bg-red-600' : 'bg-gray-600'}`}>
+                      제한 {share.downloads}/{share.maxDownloads}
+                    </Badge>
+                  )}
                 </div>
-              </div>
-            </CardContent>
-            <CardFooter className="p-4 pt-0 flex justify-between">
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="border-white/20 text-white hover:bg-white/10">
-                    <QrCode className="w-4 h-4 mr-2" />
-                    QR 코드
+
+                <div className="flex items-center bg-black/30 rounded p-2 mb-3">
+                  <Input
+                    value={`${window.location.origin}/share/${share.shortCode}`}
+                    readOnly
+                    className="bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0 h-auto text-sm"
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 ml-1 hover:bg-white/10"
+                    onClick={() => handleCopyLink(share.shortCode)}
+                  >
+                    <Copy className="h-3 w-3" />
                   </Button>
-                </DialogTrigger>
-                <DialogContent className="bg-gray-900 border-gray-800 text-white">
-                  <DialogHeader>
-                    <DialogTitle>QR 코드</DialogTitle>
-                  </DialogHeader>
-                  <div className="flex flex-col items-center">
-                    <div className="bg-white p-4 rounded-lg mb-4">
-                      <Image
-                        src={`/placeholder.svg?height=200&width=200&text=QR:${share.shortCode}`}
-                        width={200}
-                        height={200}
-                        alt="QR Code"
-                      />
-                    </div>
-                    <p className="text-sm text-gray-400 mb-2">{share.name}</p>
-                    <p className="text-xs text-gray-500 mb-4">{share.url}</p>
-                    <Button className="w-full bg-blue-600 hover:bg-blue-700">
-                      <Copy className="w-4 h-4 mr-2" />
-                      QR 코드 이미지 저장
-                    </Button>
+                </div>
+
+                <div className="text-xs text-gray-400">
+                  <div className="flex justify-between mb-1">
+                    <span>생성일</span>
+                    <span>{formatDate(share.createdAt)}</span>
                   </div>
-                </DialogContent>
-              </Dialog>
+                  <div className="flex justify-between mb-1">
+                    <span>다운로드 횟수</span>
+                    <span>{share.downloads}회</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>총 파일 크기</span>
+                    <span>{formatFileSize(share.files.reduce((sum, file) => sum + file.fileSize, 0))}</span>
+                  </div>
+                </div>
 
-              <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
-                <ExternalLink className="w-4 h-4 mr-2" />
-                링크 열기
-              </Button>
-            </CardFooter>
-          </Card>
-        ))}
-      </div>
+                {/* 파일 목록 */}
+                {share.files.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-white/10">
+                    <p className="text-xs text-gray-500 mb-2">포함된 파일:</p>
+                    <div className="space-y-1">
+                      {share.files.slice(0, 3).map((file) => (
+                        <div key={file.id} className="text-xs text-gray-400">
+                          <span className="truncate">{file.title}</span>
+                          <span className="text-gray-500 ml-1">({file.fileType})</span>
+                        </div>
+                      ))}
+                      {share.files.length > 3 && (
+                        <div className="text-xs text-gray-500">
+                          ... 외 {share.files.length - 3}개 파일
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+              <CardFooter className="p-4 pt-0 flex justify-between">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="border-white/20 text-white hover:bg-white/10"
+                  onClick={() => window.open(`/share/${share.shortCode}`, '_blank')}
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  미리보기
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      )}
 
-      {/* 만료일 변경 다이얼로그 */}
+      {/* 설정 변경 다이얼로그 */}
       <Dialog open={!!selectedShareId} onOpenChange={(open) => !open && setSelectedShareId(null)}>
         <DialogContent className="bg-gray-900 border-gray-800 text-white">
           <DialogHeader>
-            <DialogTitle>만료일 변경</DialogTitle>
+            <DialogTitle>공유 링크 설정 변경</DialogTitle>
           </DialogHeader>
-          <div>
-            <p className="text-sm text-gray-400 mb-4">
-              공유 링크의 새로운 만료일을 선택하세요. 무기한으로 설정하면 수동으로 삭제하기 전까지 링크가 유효합니다.
-            </p>
-            <Select value={newExpiryDate} onValueChange={setNewExpiryDate}>
-              <SelectTrigger className="bg-white/10 border-white/20 text-white mb-4">
-                <SelectValue placeholder="만료일 선택" />
-              </SelectTrigger>
-              <SelectContent className="bg-gray-800 border-gray-700 text-white">
-                <SelectItem value="1day">1일</SelectItem>
-                <SelectItem value="7days">7일</SelectItem>
-                <SelectItem value="30days">30일</SelectItem>
-                <SelectItem value="90days">90일</SelectItem>
-                <SelectItem value="unlimited">무기한</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="expiry">만료 시간</Label>
+              <Select 
+                value={formData.expiresIn?.toString() || 'null'} 
+                onValueChange={(value) => setFormData(prev => ({
+                  ...prev,
+                  expiresIn: value === 'null' ? null : parseInt(value)
+                }))}
+              >
+                <SelectTrigger className="bg-white/10 border-white/20 text-white">
+                  <SelectValue placeholder="만료일 선택" />
+                </SelectTrigger>
+                <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                  <SelectItem value="24">1일</SelectItem>
+                  <SelectItem value="168">7일</SelectItem>
+                  <SelectItem value="720">30일</SelectItem>
+                  <SelectItem value="2160">90일</SelectItem>
+                  <SelectItem value="null">무기한</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="maxDownloads">최대 다운로드 횟수</Label>
+              <Input
+                type="number"
+                placeholder="제한 없음"
+                value={formData.maxDownloads || ''}
+                onChange={(e) => setFormData(prev => ({
+                  ...prev,
+                  maxDownloads: e.target.value ? parseInt(e.target.value) : null
+                }))}
+                className="bg-white/10 border-white/20 text-white"
+              />
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
                 className="border-white/20 text-white hover:bg-white/10"
                 onClick={() => setSelectedShareId(null)}
+                disabled={processingAction !== null}
               >
                 취소
               </Button>
-              <Button className="bg-blue-600 hover:bg-blue-700">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                만료일 변경
+              <Button 
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={handleUpdateExpiry}
+                disabled={processingAction !== null}
+              >
+                {processingAction?.includes('update') ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                )}
+                설정 변경
               </Button>
             </div>
           </div>

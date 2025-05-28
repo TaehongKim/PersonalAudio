@@ -1,74 +1,184 @@
 "use client"
 
-import { Play, SkipBack, SkipForward, Volume2, List } from "lucide-react"
-import Image from "next/image"
+import { Play, Pause, SkipBack, SkipForward, Volume2, Repeat, Shuffle, VolumeX } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Slider } from "@/components/ui/slider"
 import { useTheme } from "@/contexts/ThemeContext"
+import { usePlayer } from "@/contexts/PlayerContext"
+import { useState } from "react"
 
 export function PlayerControls() {
   const { theme } = useTheme()
   const isDark = theme === "dark"
+  const { state, togglePlay, next, previous, seek, setVolume, toggleRepeat, toggleShuffle, formatTime } = usePlayer()
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false)
+
+  // 플레이어가 활성화되지 않았으면 렌더링하지 않음
+  if (!state.currentFile) {
+    return null
+  }
+
+  const handleSeek = (value: number[]) => {
+    seek(value[0])
+  }
+
+  const handleVolumeChange = (value: number[]) => {
+    setVolume(value[0] / 100)
+  }
+
+  // const progressPercentage = state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0
 
   return (
     <div
-      className={`${isDark ? "bg-black text-white border-t border-white/10" : "bg-white text-gray-800 border-t border-gray-200"} p-4 flex items-center justify-between`}
+      className={`${isDark ? "bg-black text-white border-t border-white/10" : "bg-white text-gray-800 border-t border-gray-200"} p-4`}
     >
-      <div className="flex items-center space-x-4">
-        <Image
-          src="/placeholder.svg?height=56&width=56"
-          width={56}
-          height={56}
-          alt="Now playing"
-          className="w-14 h-14 rounded"
-        />
-        <div>
-          <p className="font-semibold">아이유 - 좋은 날</p>
-          <p className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>MP3 • 3:48</p>
+      {/* 에러 메시지 */}
+      {state.error && (
+        <div className="mb-2 p-2 bg-red-900/50 border border-red-600 rounded text-red-200 text-sm">
+          {state.error}
         </div>
-      </div>
-      <div className="flex flex-col items-center">
-        <div className="flex items-center space-x-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
-          >
-            <SkipBack size={20} />
-          </Button>
-          <Button
-            className={`${isDark ? "bg-white text-black" : "bg-black text-white"} rounded-full h-10 w-10 p-0 hover:scale-105 transition`}
-          >
-            <Play fill="currentColor" size={20} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
-          >
-            <SkipForward size={20} />
-          </Button>
-        </div>
-        <div className="w-full max-w-md mt-2">
-          <div className={`${isDark ? "bg-gray-500" : "bg-gray-300"} rounded-full h-1 w-full`}>
-            <div className={`${isDark ? "bg-white" : "bg-gray-800"} rounded-full h-1 w-1/3`}></div>
+      )}
+
+      <div className="flex items-center justify-between">
+        {/* 현재 재생 정보 */}
+        <div className="flex items-center space-x-4 flex-1 min-w-0">
+          <div className="w-14 h-14 bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center flex-shrink-0">
+            {state.currentFile.fileType.toLowerCase().includes('mp3') ? (
+              <span className="text-xs font-medium">MP3</span>
+            ) : (
+              <span className="text-xs font-medium">MP4</span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold truncate">{state.currentFile.title}</p>
+            <p className={`text-sm truncate ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+              {state.currentFile.artist || '알 수 없는 아티스트'} • {state.currentFile.fileType.toUpperCase()}
+              {state.duration > 0 && ` • ${formatTime(state.duration)}`}
+            </p>
+            {state.playlist.length > 1 && (
+              <p className={`text-xs ${isDark ? "text-gray-500" : "text-gray-400"}`}>
+                {state.currentIndex + 1} / {state.playlist.length}
+              </p>
+            )}
           </div>
         </div>
-      </div>
-      <div className="flex items-center space-x-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
-        >
-          <Volume2 size={20} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
-        >
-          <List size={20} />
-        </Button>
+
+        {/* 플레이어 컨트롤 */}
+        <div className="flex flex-col items-center mx-8">
+          {/* 컨트롤 버튼 */}
+          <div className="flex items-center space-x-2">
+            {/* 셔플 */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`h-8 w-8 ${state.shuffle ? 'text-purple-400' : isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}`}
+              onClick={toggleShuffle}
+            >
+              <Shuffle size={16} />
+            </Button>
+            
+            {/* 이전 곡 */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
+              onClick={previous}
+              disabled={state.playlist.length <= 1}
+            >
+              <SkipBack size={18} />
+            </Button>
+            
+            {/* 재생/일시정지 */}
+            <Button
+              className={`${isDark ? "bg-white text-black hover:bg-gray-200" : "bg-black text-white hover:bg-gray-800"} rounded-full h-10 w-10 p-0 hover:scale-105 transition`}
+              onClick={togglePlay}
+              disabled={state.isLoading}
+            >
+              {state.isLoading ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+              ) : state.isPlaying ? (
+                <Pause fill="currentColor" size={18} />
+              ) : (
+                <Play fill="currentColor" size={18} />
+              )}
+            </Button>
+            
+            {/* 다음 곡 */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
+              onClick={next}
+              disabled={state.playlist.length <= 1}
+            >
+              <SkipForward size={18} />
+            </Button>
+            
+            {/* 반복 */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`h-8 w-8 ${state.repeat !== 'none' ? 'text-purple-400' : isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}`}
+              onClick={toggleRepeat}
+            >
+              <Repeat size={16} />
+              {state.repeat === 'one' && (
+                <span className="absolute text-xs font-bold">1</span>
+              )}
+            </Button>
+          </div>
+
+          {/* 진행 바 */}
+          <div className="w-96 max-w-full mt-2 flex items-center space-x-2">
+            <span className={`text-xs w-10 text-right ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+              {formatTime(state.currentTime)}
+            </span>
+            <div className="flex-1">
+              <Slider
+                value={[state.currentTime]}
+                max={state.duration || 100}
+                step={1}
+                className="w-full"
+                onValueChange={handleSeek}
+              />
+            </div>
+            <span className={`text-xs w-10 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+              {formatTime(state.duration)}
+            </span>
+          </div>
+        </div>
+
+        {/* 볼륨 및 부가 컨트롤 */}
+        <div className="flex items-center space-x-2">
+          {/* 볼륨 컨트롤 */}
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
+              onClick={() => setShowVolumeSlider(!showVolumeSlider)}
+            >
+              {state.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </Button>
+            
+            {showVolumeSlider && (
+              <div className={`absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 p-2 rounded shadow-lg ${
+                isDark ? "bg-gray-800 border border-gray-600" : "bg-white border border-gray-200"
+              }`}>
+                <div className="w-24">
+                  <Slider
+                    value={[state.volume * 100]}
+                    max={100}
+                    step={1}
+                    orientation="vertical"
+                    className="h-20"
+                    onValueChange={handleVolumeChange}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
