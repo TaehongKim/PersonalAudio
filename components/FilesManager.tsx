@@ -17,6 +17,10 @@ import {
   FolderOpen,
   Loader2,
   RefreshCw,
+  Grid3X3,
+  List,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -170,6 +174,7 @@ export function FilesManager() {
     expiresIn: 168 as number | null, // 7일 (시간 단위)
     maxDownloads: null as number | null
   })
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
   // 데이터 로딩 함수
   const loadFiles = useCallback(async () => {
@@ -226,6 +231,14 @@ export function FilesManager() {
     loadStats()
   }, [loadFiles, loadStats])
 
+  // 그룹이 변경될 때 모든 그룹을 기본적으로 펼치기
+  useEffect(() => {
+    if (fileGroups.length > 0) {
+      const allGroupKeys = fileGroups.map(group => `${group.groupType}_${group.groupName}`)
+      setExpandedGroups(new Set(allGroupKeys))
+    }
+  }, [fileGroups])
+
   // 검색 쿼리 변경 시 첫 페이지로 리셋
   useEffect(() => {
     setCurrentPage(1)
@@ -247,6 +260,35 @@ export function FilesManager() {
       setSelectedItems([])
     } else {
       setSelectedItems(currentFileIds)
+    }
+  }
+
+  const toggleGroupExpansion = (groupKey: string) => {
+    const newExpanded = new Set(expandedGroups)
+    if (newExpanded.has(groupKey)) {
+      newExpanded.delete(groupKey)
+    } else {
+      newExpanded.add(groupKey)
+    }
+    setExpandedGroups(newExpanded)
+  }
+
+  const toggleGroupSelection = (groupFiles: FileData[]) => {
+    const groupFileIds = groupFiles.map(f => f.id)
+    const allGroupSelected = groupFileIds.every(id => selectedItems.includes(id))
+    
+    if (allGroupSelected) {
+      // 그룹의 모든 파일을 선택 해제
+      setSelectedItems(selectedItems.filter(id => !groupFileIds.includes(id)))
+    } else {
+      // 그룹의 모든 파일을 선택
+      const newSelected = [...selectedItems]
+      groupFileIds.forEach(id => {
+        if (!newSelected.includes(id)) {
+          newSelected.push(id)
+        }
+      })
+      setSelectedItems(newSelected)
     }
   }
 
@@ -506,6 +548,28 @@ export function FilesManager() {
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
+            {/* 뷰 모드 토글 */}
+            <div className="flex bg-white/10 rounded-lg p-1">
+              <Button
+                size="sm"
+                variant={viewMode === 'list' ? 'default' : 'ghost'}
+                className={`px-3 ${viewMode === 'list' ? 'bg-white text-black' : 'text-white hover:bg-white/20'}`}
+                onClick={() => setViewMode('list')}
+              >
+                <List className="w-4 h-4 mr-1" />
+                목록
+              </Button>
+              <Button
+                size="sm"
+                variant={viewMode === 'groups' ? 'default' : 'ghost'}
+                className={`px-3 ${viewMode === 'groups' ? 'bg-white text-black' : 'text-white hover:bg-white/20'}`}
+                onClick={() => setViewMode('groups')}
+              >
+                <Grid3X3 className="w-4 h-4 mr-1" />
+                그룹
+              </Button>
+            </div>
+            
             {/* 전체 선택 버튼은 항상 표시 */}
             <Button 
               className="bg-purple-600 hover:bg-purple-700" 
@@ -738,6 +802,171 @@ export function FilesManager() {
           <p className="text-gray-400">파일을 찾을 수 없습니다.</p>
           {searchQuery && <p className="text-sm text-gray-500 mt-2">검색어: &quot;{searchQuery}&quot;</p>}
         </div>
+      ) : viewMode === 'groups' ? (
+        <div className="space-y-4">
+          {fileGroups.map((group) => {
+            const groupKey = `${group.groupType}_${group.groupName}`
+            const isExpanded = expandedGroups.has(groupKey)
+            // const groupFileIds = group.files.map(f => f.id)
+            const selectedInGroup = group.files.filter(f => selectedItems.includes(f.id)).length
+            const allGroupSelected = selectedInGroup === group.files.length && group.files.length > 0
+            
+            return (
+              <Card key={groupKey} className="bg-white/5 border-white/10">
+                <CardContent className="p-0">
+                  {/* 그룹 헤더 */}
+                  <div className="p-4 border-b border-white/10">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="p-1 h-6 w-6"
+                          onClick={() => toggleGroupExpansion(groupKey)}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={allGroupSelected}
+                            onChange={() => toggleGroupSelection(group.files)}
+                            className="h-4 w-4 rounded border-gray-500 bg-transparent"
+                          />
+                          <FolderOpen className="h-5 w-5 text-blue-400" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-lg">{getGroupTypeDisplayName(group.groupType)}</h3>
+                          <p className="text-sm text-gray-400">
+                            {group.groupName} • {group.files.length}개 파일 • {formatDate(group.createdAt)}
+                            {selectedInGroup > 0 && ` • ${selectedInGroup}개 선택됨`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Badge variant="secondary" className="bg-white/10">
+                          {formatFileSize(group.files.reduce((total, file) => total + file.fileSize, 0))}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* 그룹 파일 목록 */}
+                  {isExpanded && (
+                    <div className="space-y-1 p-2">
+                      {group.files.map((file) => (
+                        <div key={file.id} className="bg-white/5 rounded-lg p-3 hover:bg-white/10 transition-colors">
+                          <div className="flex items-center">
+                            <div className="mr-3" onClick={(e) => toggleItemSelection(file.id, e)}>
+                              <input
+                                type="checkbox"
+                                checked={selectedItems.includes(file.id)}
+                                onChange={(e) => e.stopPropagation()}
+                                className="h-4 w-4 rounded border-gray-500 bg-transparent"
+                              />
+                            </div>
+                            <div className="relative">
+                              <div className="w-12 h-12 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
+                                {file.thumbnailPath && file.groupType === 'melon_chart' ? (
+                                  <img 
+                                    src={`/api/files/${file.id}/thumbnail`} 
+                                    alt={`${file.title} 앨범 커버`}
+                                    className="w-full h-full object-cover rounded"
+                                    onError={(e) => {
+                                      const target = e.target as HTMLImageElement;
+                                      target.style.display = 'none';
+                                      target.nextElementSibling?.classList.remove('hidden');
+                                    }}
+                                  />
+                                ) : null}
+                                <div className={file.thumbnailPath && file.groupType === 'melon_chart' ? 'hidden' : ''}>
+                                  {getFileIcon(file.fileType)}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0 mr-2">
+                              <div className="flex items-center space-x-2">
+                                {file.rank && (
+                                  <Badge className="bg-yellow-600 text-xs px-1">
+                                    #{file.rank}
+                                  </Badge>
+                                )}
+                                <p className="font-medium truncate">{highlightText(file.title)}</p>
+                              </div>
+                              <p className="text-sm text-gray-400">
+                                {highlightText(file.artist || '알 수 없는 아티스트')} • {formatDuration(file.duration)}
+                              </p>
+                              <div className="flex items-center text-xs text-gray-500 mt-1">
+                                <Badge className={`mr-2 ${getFileBadgeColor(file.fileType)} text-xs`}>
+                                  {file.fileType.toUpperCase()}
+                                </Badge>
+                                <span>{formatFileSize(file.fileSize)}</span>
+                                <span className="mx-1">•</span>
+                                <span>다운로드 {file.downloads}회</span>
+                              </div>
+                            </div>
+                            <div className="flex space-x-1">
+                              {file.fileType.toLowerCase().includes('mp3') && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8"
+                                  onClick={(e) => togglePlayFile(file, e)}
+                                >
+                                  {playerState.currentFile?.id === file.id && playerState.isPlaying ? (
+                                    <Pause className="h-4 w-4 text-green-400" fill="currentColor" />
+                                  ) : (
+                                    <Play className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              )}
+                              <Button 
+                                size="icon" 
+                                variant="ghost" 
+                                className="h-8 w-8" 
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDownloadFile(file.id)
+                                }}
+                                disabled={processingAction === `download-${file.id}`}
+                              >
+                                {processingAction === `download-${file.id}` ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Download className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteFile(file.id)
+                                }}
+                                disabled={processingAction === `delete-${file.id}`}
+                              >
+                                {processingAction === `delete-${file.id}` ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       ) : (
         <div className="space-y-2">
           {files.map((file) => (
@@ -773,7 +1002,14 @@ export function FilesManager() {
                     </div>
                   </div>
                   <div className="flex-1 min-w-0 mr-2">
-                    <p className="font-medium truncate">{highlightText(file.title)}</p>
+                    <div className="flex items-center space-x-2">
+                      {file.rank && (
+                        <Badge className="bg-yellow-600 text-xs px-1">
+                          #{file.rank}
+                        </Badge>
+                      )}
+                      <p className="font-medium truncate">{highlightText(file.title)}</p>
+                    </div>
                     <p className="text-sm text-gray-400">
                       {highlightText(file.artist || '알 수 없는 아티스트')} • {formatDuration(file.duration)}
                     </p>
@@ -786,6 +1022,12 @@ export function FilesManager() {
                       <span>{formatDate(file.createdAt)}</span>
                       <span className="mx-1">•</span>
                       <span>다운로드 {file.downloads}회</span>
+                      {file.groupType && (
+                        <>
+                          <span className="mx-1">•</span>
+                          <span className="text-blue-400">{getGroupTypeDisplayName(file.groupType)}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="flex space-x-1">
