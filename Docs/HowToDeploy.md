@@ -406,4 +406,54 @@ npm run build
 
 # 애플리케이션 재시작
 pm2 restart yc-mp3-web
-``` 
+```
+
+## 8. PersonalAudio 배포 가이드
+
+### 8.1. 의존성 설치
+
+```bash
+pnpm install
+```
+
+### 8.2. ffmpeg, yt-dlp 설치 (WSL2/Ubuntu 기준)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg python3-pip pipx
+pipx ensurepath
+pipx install yt-dlp
+```
+
+설치 확인:
+```bash
+yt-dlp --version
+ffmpeg -version
+```
+
+### 8.3. 프로젝트 bin 경로에 실행 파일 심볼릭 링크 (필수)
+
+PersonalAudio는 내부적으로 `bin/yt-dlp`, `bin/ffmpeg` 경로의 실행 파일을 사용합니다.
+시스템에 설치된 yt-dlp, ffmpeg를 bin 폴더에 심볼릭 링크로 연결하세요.
+
+```bash
+mkdir -p /home/tim/prj/PersonalAudio/bin
+ln -sf $(which yt-dlp) /home/tim/prj/PersonalAudio/bin/yt-dlp
+ln -sf $(which ffmpeg) /home/tim/prj/PersonalAudio/bin/ffmpeg
+chmod +x /home/tim/prj/PersonalAudio/bin/yt-dlp
+chmod +x /home/tim/prj/PersonalAudio/bin/ffmpeg
+```
+
+### 8.4. 빌드 및 실행
+
+```bash
+pnpm build
+pnpm start
+```
+
+---
+
+### 참고
+- 만약 pipx가 없다면 `sudo apt-get install -y pipx`로 설치
+- WSL2가 아닌 환경에서는 각 OS에 맞는 yt-dlp, ffmpeg 설치 방법을 사용
+- bin 경로가 다를 경우, 프로젝트 내 `lib/utils/binary-installer.ts`의 경로 설정을 확인/수정 

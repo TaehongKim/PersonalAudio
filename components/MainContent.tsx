@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from "react";
-import { Download, Music, Video, Trash2, Search } from "lucide-react"
+import { Download, Music, Video, Trash2, Search, List } from "lucide-react"
 import Image from "next/image"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -26,6 +26,7 @@ export function MainContent() {
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // 다운로드 큐 로드
   useEffect(() => {
@@ -79,6 +80,11 @@ export function MainContent() {
     }
   }
 
+  // 플레이리스트 URL 검증
+  function isPlaylistUrl(url: string): boolean {
+    return url.includes('playlist?list=') || url.includes('&list=');
+  }
+
   // 유튜브 URL로 다운로드 요청
   async function downloadYoutube(type: string) {
     if (!url) {
@@ -91,16 +97,40 @@ export function MainContent() {
       return;
     }
 
+    const isPlaylist = isPlaylistUrl(url);
+    
+    // 플레이리스트인 경우 확인 메시지
+    if (isPlaylist) {
+      const confirm = window.confirm(
+        `플레이리스트 다운로드를 시작하시겠습니까?\n\n` +
+        `• 플레이리스트의 모든 동영상이 개별적으로 다운로드됩니다.\n` +
+        `• 대량의 파일이 생성될 수 있습니다.\n` +
+        `• 다운로드 시간이 오래 걸릴 수 있습니다.`
+      );
+      
+      if (!confirm) {
+        return;
+      }
+    }
+
     setIsLoading(true);
     setError(null);
+    setSuccessMessage(null);
 
     try {
+      // 플레이리스트인 경우 타입에 _playlist 추가
+      const downloadType = isPlaylist ? `${type}_playlist` : type;
+      
       const response = await fetch('/api/youtube/download', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url, type }),
+        body: JSON.stringify({ 
+          url, 
+          type: downloadType,
+          isPlaylist 
+        }),
       });
 
       const data = await response.json();
@@ -111,6 +141,18 @@ export function MainContent() {
       
       // 성공 시 입력 필드 초기화
       setUrl('');
+      
+      // 플레이리스트 다운로드 시작 알림
+      if (isPlaylist) {
+        setSuccessMessage('플레이리스트 다운로드가 시작되었습니다. 대기열에서 진행 상황을 확인할 수 있습니다.');
+      } else {
+        setSuccessMessage('다운로드가 시작되었습니다.');
+      }
+      
+      // 3초 후 성공 메시지 제거
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 3000);
     } catch (err) {
       console.error('다운로드 요청 오류:', err);
       setError(err instanceof Error ? err.message : '다운로드 요청 중 오류가 발생했습니다.');
@@ -130,16 +172,27 @@ export function MainContent() {
                 {error}
               </div>
             )}
+            {successMessage && (
+              <div className="mb-4 p-3 bg-green-900/30 border border-green-400/30 text-green-300 rounded text-sm">
+                {successMessage}
+              </div>
+            )}
             <div className="mb-4">
               <label htmlFor="youtube-url" className="block text-sm font-medium mb-2">
                 유튜브 URL 입력
+                {isPlaylistUrl(url) && (
+                  <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-600 text-white">
+                    <List className="w-3 h-3 mr-1" />
+                    플레이리스트 감지됨
+                  </span>
+                )}
               </label>
               <div className="flex gap-2">
                 <Input
                   id="youtube-url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
+                  placeholder="https://www.youtube.com/watch?v=... 또는 플레이리스트 URL"
                   className="bg-white/5 border-white/20 text-white"
                   disabled={isLoading}
                 />
@@ -152,6 +205,11 @@ export function MainContent() {
                   검색
                 </Button>
               </div>
+              {isPlaylistUrl(url) && (
+                <p className="text-sm text-purple-300 mt-2">
+                  ⚠️ 플레이리스트의 모든 동영상이 다운로드됩니다. 시간이 오래 걸릴 수 있습니다.
+                </p>
+              )}
             </div>
             <div className="flex gap-2 mt-4">
               <Button 
@@ -159,16 +217,16 @@ export function MainContent() {
                 disabled={isLoading}
                 onClick={() => downloadYoutube('mp3')}
               >
-                <Music className="w-4 h-4 mr-2" />
-                MP3 다운로드
+                {isPlaylistUrl(url) ? <List className="w-4 h-4 mr-2" /> : <Music className="w-4 h-4 mr-2" />}
+                {isPlaylistUrl(url) ? '플레이리스트 MP3' : 'MP3 다운로드'}
               </Button>
               <Button 
                 className="bg-blue-600 hover:bg-blue-700 flex-1"
                 disabled={isLoading}
                 onClick={() => downloadYoutube('video')}
               >
-                <Video className="w-4 h-4 mr-2" />
-                720p 다운로드
+                {isPlaylistUrl(url) ? <List className="w-4 h-4 mr-2" /> : <Video className="w-4 h-4 mr-2" />}
+                {isPlaylistUrl(url) ? '플레이리스트 720p' : '720p 다운로드'}
               </Button>
             </div>
           </CardContent>
@@ -215,7 +273,9 @@ export function MainContent() {
                           alt={`${item.title || '다운로드 항목'} 썸네일`}
                           className="rounded"
                         />
-                        {item.type.includes('mp3') ? (
+                        {item.type.includes('playlist') ? (
+                          <List className="absolute bottom-0 right-0 w-4 h-4 bg-purple-600 rounded-full p-0.5" />
+                        ) : item.type.includes('mp3') ? (
                           <Music className="absolute bottom-0 right-0 w-4 h-4 bg-green-600 rounded-full p-0.5" />
                         ) : (
                           <Video className="absolute bottom-0 right-0 w-4 h-4 bg-blue-600 rounded-full p-0.5" />

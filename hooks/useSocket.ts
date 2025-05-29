@@ -1,50 +1,40 @@
 import { useEffect, useState, useCallback } from 'react';
-import { io, Socket, DownloadStatusData, DownloadErrorData, PlaylistItemProgressData, PlaylistItemCompleteData } from 'socket.io-client';
+import { getSocket } from '@/lib/socket-client';
+import type { Socket } from 'socket.io-client';
+import { DownloadStatusData, DownloadErrorData, PlaylistItemProgressData, PlaylistItemCompleteData } from 'socket.io-client';
 
 /**
  * 소켓.io 연결을 관리하는 커스텀 훅
  */
 export function useSocket() {
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const socket: Socket | null = typeof window !== 'undefined' ? getSocket() : null;
 
-  // 소켓 초기화
   useEffect(() => {
-    // 클라이언트 사이드에서만 실행
-    if (typeof window === 'undefined') return;
+    if (!socket) return;
 
-    // 소켓이 이미 존재하면 재사용
-    if (socket) return;
-
-    // 소켓 연결
-    const socketIo = io(window.location.origin, {
-      path: '/api/socket',
-    });
-
-    // 이벤트 리스너 등록
-    socketIo.on('connect', () => {
-      console.log('Socket connected:', socketIo.id);
+    const handleConnect = () => {
       setIsConnected(true);
-    });
-
-    socketIo.on('disconnect', () => {
+      console.log('Socket connected:', socket.id);
+    };
+    const handleDisconnect = () => {
+      setIsConnected(false);
       console.log('Socket disconnected');
+    };
+    const handleConnectError = (err: any) => {
       setIsConnected(false);
-    });
-
-    socketIo.on('connect_error', (err: any) => {
       console.error('Socket connection error:', err);
-      setIsConnected(false);
-    });
+    };
 
-    // 소켓 저장
-    setSocket(socketIo);
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect_error', handleConnectError);
 
-    // 컴포넌트 언마운트 시 정리
     return () => {
-      socketIo.disconnect();
-      setSocket(null);
-      setIsConnected(false);
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('connect_error', handleConnectError);
+      // disconnect()는 호출하지 않음 (싱글턴 유지)
     };
   }, [socket]);
 

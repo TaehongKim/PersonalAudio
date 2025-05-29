@@ -5,11 +5,13 @@ export function useSession() {
   
   const isLoading = status === "loading";
   const isAuthenticated = status === "authenticated";
+  const isLoggedIn = status === "authenticated";
   
   return {
     session,
     isLoading,
     isAuthenticated,
+    isLoggedIn,
     signIn,
     signOut,
   };

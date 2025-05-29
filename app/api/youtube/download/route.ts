@@ -33,9 +33,10 @@ export async function POST(request: Request) {
     // 다운로드 타입 확인 및 설정
     let downloadType: DownloadType;
     
-    if (isPlaylist) {
+    // 클라이언트에서 _playlist가 포함된 타입이나 직접 플레이리스트 체크
+    if (type.includes('_playlist') || isPlaylist) {
       // 플레이리스트인 경우
-      if (type === 'video') {
+      if (type.includes('video')) {
         downloadType = DownloadType.PLAYLIST_VIDEO;
       } else {
         downloadType = DownloadType.PLAYLIST_MP3; // 기본값

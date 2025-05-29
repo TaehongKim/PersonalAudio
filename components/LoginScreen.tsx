@@ -6,12 +6,9 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Music, Lock } from "lucide-react"
+import { signIn } from "next-auth/react"
 
-interface LoginScreenProps {
-  setIsLoggedIn: (value: boolean) => void
-}
-
-export function LoginScreen({ setIsLoggedIn }: LoginScreenProps) {
+export function LoginScreen() {
   const [password, setPassword] = useState("")
   const [rememberMe, setRememberMe] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -29,27 +26,20 @@ export function LoginScreen({ setIsLoggedIn }: LoginScreenProps) {
       setIsLoading(true)
       setError("")
       
-      // 서버 API를 통해 비밀번호 검증
-      const response = await fetch('/api/auth/validate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ password }),
+      // NextAuth로 로그인
+      const result = await signIn('credentials', {
+        password,
+        redirect: false,
       })
       
-      const data = await response.json()
-      
-      if (data.success) {
-        // 로그인 성공 - 로컬 스토리지에 로그인 상태 저장
+      if (result?.error) {
+        setError("비밀번호가 올바르지 않습니다.")
+      } else if (result?.ok) {
+        // 로그인 성공 - localStorage 설정 (호환성을 위해)
         if (rememberMe) {
           localStorage.setItem("isLoggedIn", "true")
         }
-        
-        // 부모 컴포넌트의 상태 업데이트
-        setIsLoggedIn(true)
-      } else {
-        setError("비밀번호가 올바르지 않습니다.")
+        // NextAuth가 자동으로 페이지를 새로고침하거나 리디렉션합니다
       }
     } catch (error) {
       setError("로그인 중 오류가 발생했습니다.")

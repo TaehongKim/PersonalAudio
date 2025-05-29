@@ -49,6 +49,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       case '.m4a':
         contentType = 'audio/mp4';
         break;
+      case '.jpg':
+      case '.jpeg':
+        contentType = 'image/jpeg';
+        break;
+      case '.png':
+        contentType = 'image/png';
+        break;
+      case '.gif':
+        contentType = 'image/gif';
+        break;
+      case '.webp':
+        contentType = 'image/webp';
+        break;
     }
 
     // Range 요청 처리 (스트리밍을 위해)

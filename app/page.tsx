@@ -15,31 +15,35 @@ import { HomeContent } from "../components/HomeContent"
 import { useMediaQuery } from "@/hooks/use-mobile"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { PlayerProvider } from "@/contexts/PlayerContext"
+import { useSession } from "@/hooks/useSession"
 
 export default function Home() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [activeTab, setActiveTab] = useState("youtube") // 기본 탭을 youtube로 변경
   const [shareCode] = useState<string | null>(null) // 공유 링크 코드
   const isMobile = useMediaQuery("(max-width: 768px)")
-
-  // 페이지 로드 시 로그인 상태 확인
-  useEffect(() => {
-    const storedLoginState = localStorage.getItem("isLoggedIn")
-    if (storedLoginState === "true") {
-      setIsLoggedIn(true)
-    }
-  }, [])
+  const { isLoggedIn, isLoading, signOut } = useSession()
 
   // 로그아웃 처리 함수
-  const handleLogout = () => {
-    localStorage.removeItem("isLoggedIn")
-    setIsLoggedIn(false)
+  const handleLogout = async () => {
+    await signOut()
+    localStorage.removeItem("isLoggedIn") // 기존 localStorage도 정리
+  }
+
+  // 세션 로딩 중이면 로딩 표시
+  if (isLoading) {
+    return (
+      <ThemeProvider>
+        <div className="min-h-screen bg-gray-100 dark:bg-zinc-900 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+      </ThemeProvider>
+    )
   }
 
   if (!isLoggedIn) {
     return (
       <ThemeProvider>
-        <LoginScreen setIsLoggedIn={setIsLoggedIn} />
+        <LoginScreen />
       </ThemeProvider>
     );
   }

@@ -19,6 +19,9 @@ model File {
   duration      Int?      // 재생 시간 (초)
   path          String    // 서버 파일 시스템 경로
   thumbnailPath String?
+  groupType     String?   // YOUTUBE_SINGLE, YOUTUBE_PLAYLIST, MELON_CHART
+  groupName     String?   // 그룹 이름 (날짜, 플레이리스트명 등)
+  rank          Int?      // 멜론차트 순위
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   downloads     Int       @default(0)

@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import { prisma } from './prisma';
 import { 
   emitDownloadStatusUpdate, 
@@ -10,6 +11,9 @@ import {
   emitPlaylistItemComplete
 } from './socket-server';
 import { getBinaryPaths } from './utils/binary-installer';
+import https from 'https';
+import http from 'http';
+import url from 'url';
 
 // 바이너리 경로 가져오기
 const { ytdlp: YTDLP_PATH, ffmpeg: FFMPEG_PATH } = getBinaryPaths();
@@ -33,6 +37,22 @@ export enum DownloadType {
   PLAYLIST_VIDEO = 'playlist_video',
 }
 
+// 파일 그룹 타입
+export enum FileGroupType {
+  YOUTUBE_SINGLE = 'youtube_single',
+  YOUTUBE_PLAYLIST = 'youtube_playlist',
+  MELON_CHART = 'melon_chart',
+}
+
+// 그룹 정보 인터페이스
+interface FileGroup {
+  id: string;
+  type: FileGroupType;
+  name: string;
+  folderPath: string;
+  createdAt: Date;
+}
+
 // 유튜브 정보 타입 정의
 interface YoutubeInfo {
   id: string;
@@ -41,6 +61,155 @@ interface YoutubeInfo {
   duration?: number;
   uploader?: string;
   [key: string]: any;
+}
+
+// 유튜브 플레이리스트 정보 타입 정의
+interface YoutubePlaylistInfo {
+  id: string;
+  title: string;
+  uploader?: string;
+  entries: Array<YoutubeInfo & { url?: string }>;
+  count: number;
+}
+
+/**
+ * 파일명에서 안전하지 않은 문자 제거
+ */
+function sanitizeFileName(filename: string): string {
+  return filename
+    .replace(/[<>:"/\\|?*]/g, '') // 윈도우 금지 문자
+    .replace(/[^\x00-\x7F]/g, (char) => char) // 유니코드 유지
+    .trim()
+    .substring(0, 200); // 길이 제한
+}
+
+/**
+ * 이미지 URL에서 파일 다운로드
+ */
+async function downloadImage(imageUrl: string, outputPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = url.parse(imageUrl);
+    const httpModule = parsedUrl.protocol === 'https:' ? https : http;
+    
+    httpModule.get(imageUrl, (response) => {
+      if (response.statusCode === 200) {
+        const fileStream = fsSync.createWriteStream(outputPath);
+        response.pipe(fileStream);
+        
+        fileStream.on('finish', () => {
+          fileStream.close();
+          resolve();
+        });
+        
+        fileStream.on('error', (err: Error) => {
+          fsSync.unlink(outputPath, () => {}); // 실패 시 파일 삭제
+          reject(err);
+        });
+      } else if (response.statusCode === 302 || response.statusCode === 301) {
+        // 리디렉션 처리
+        if (response.headers.location) {
+          downloadImage(response.headers.location, outputPath)
+            .then(resolve)
+            .catch(reject);
+        } else {
+          reject(new Error('Redirect without location'));
+        }
+      } else {
+        reject(new Error(`Failed to download image: ${response.statusCode}`));
+      }
+    }).on('error', (err: Error) => {
+      reject(err);
+    });
+  });
+}
+
+/**
+ * ffmpeg를 사용하여 MP3에 앨범아트 추가
+ */
+async function addAlbumArtToMp3(
+  audioPath: string, 
+  imagePath: string, 
+  outputPath: string
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ffmpegProcess = spawn(FFMPEG_PATH, [
+      '-i', audioPath,        // 입력 오디오 파일
+      '-i', imagePath,        // 입력 이미지 파일
+      '-map', '0:0',          // 첫 번째 파일의 오디오 스트림
+      '-map', '1:0',          // 두 번째 파일의 이미지 스트림
+      '-c', 'copy',           // 오디오 코덱 복사 (재인코딩 없음)
+      '-id3v2_version', '3',  // ID3v2.3 사용
+      '-metadata:s:v', 'title="Album cover"',
+      '-metadata:s:v', 'comment="Cover (front)"',
+      '-y',                   // 덮어쓰기 허용
+      outputPath
+    ]);
+    
+    ffmpegProcess.stderr.on('data', (data) => {
+      console.log(`[ffmpeg album art] ${data.toString()}`);
+    });
+    
+    ffmpegProcess.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`ffmpeg failed with code ${code}`));
+      }
+    });
+    
+    ffmpegProcess.on('error', (error) => {
+      reject(error);
+    });
+  });
+}
+
+/**
+ * 날짜 기반 폴더명 생성 (YYYYMMDD)
+ */
+function getDateFolderName(): string {
+  const now = new Date();
+  return now.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+/**
+ * 그룹별 폴더 경로 생성
+ */
+function createGroupFolder(type: FileGroupType, groupName: string): string {
+  const sanitizedName = sanitizeFileName(groupName);
+  const basePath = MEDIA_STORAGE_PATH;
+  
+  switch (type) {
+    case FileGroupType.YOUTUBE_SINGLE:
+      return path.join(basePath, 'youtube', getDateFolderName());
+    case FileGroupType.YOUTUBE_PLAYLIST:
+      return path.join(basePath, 'playlists', sanitizedName);
+    case FileGroupType.MELON_CHART:
+      return path.join(basePath, 'melon', `${getDateFolderName()}_${sanitizedName}`);
+    default:
+      return path.join(basePath, 'others');
+  }
+}
+
+/**
+ * 파일명 생성 (그룹 타입에 따라)
+ */
+function generateFileName(
+  type: FileGroupType, 
+  originalTitle: string, 
+  extension: string, 
+  rank?: number
+): string {
+  const sanitizedTitle = sanitizeFileName(originalTitle);
+  
+  switch (type) {
+    case FileGroupType.YOUTUBE_SINGLE:
+    case FileGroupType.YOUTUBE_PLAYLIST:
+      return `${sanitizedTitle}.${extension}`;
+    case FileGroupType.MELON_CHART:
+      return rank ? `${rank}_${sanitizedTitle}.${extension}` : `${sanitizedTitle}.${extension}`;
+    default:
+      return `${sanitizedTitle}.${extension}`;
+  }
 }
 
 /**
@@ -145,7 +314,7 @@ export async function getYoutubeInfo(url: string): Promise<YoutubeInfo> {
 /**
  * 유튜브 플레이리스트 정보 가져오기
  */
-export async function getPlaylistInfo(url: string): Promise<any> {
+export async function getPlaylistInfo(url: string): Promise<YoutubePlaylistInfo> {
   const { ytdlp } = await checkUtilities();
   
   return new Promise((resolve, reject) => {
@@ -168,7 +337,7 @@ export async function getPlaylistInfo(url: string): Promise<any> {
             const entries = output.trim().split('\n').map(line => JSON.parse(line));
             
             // 플레이리스트 정보 생성
-            const playlistInfo = {
+            const playlistInfo: YoutubePlaylistInfo = {
               id: entries[0]?.playlist_id || 'unknown',
               title: entries[0]?.playlist_title || '알 수 없는 플레이리스트',
               uploader: entries[0]?.playlist_uploader || '알 수 없는 업로더',
@@ -218,7 +387,7 @@ export function isPlaylistUrl(url: string): boolean {
 /**
  * 유튜브 MP3 다운로드
  */
-export async function downloadYoutubeMp3(queueId: string, url: string) {
+export async function downloadYoutubeMp3(queueId: string, url: string, options: any = {}) {
   try {
     // 작업 상태 업데이트
     await prisma.downloadQueue.update({
@@ -229,12 +398,21 @@ export async function downloadYoutubeMp3(queueId: string, url: string) {
     // 소켓 이벤트 발신
     emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, 0);
 
-    // 스토리지 디렉토리 생성
-    await fs.mkdir(MEDIA_STORAGE_PATH, { recursive: true });
+    // 동영상 정보 먼저 가져오기
+    const info: YoutubeInfo = await getYoutubeInfo(url);
     
-    // 파일명 생성
-    const timestamp = Date.now();
-    const outputPath = path.join(MEDIA_STORAGE_PATH, `${timestamp}.mp3`);
+    // 멜론차트 여부에 따라 그룹 타입 결정
+    const isMelonChart = options.isMelonChart || false;
+    const groupType = isMelonChart ? FileGroupType.MELON_CHART : FileGroupType.YOUTUBE_SINGLE;
+    const groupName = isMelonChart ? `TOP${options.chartSize || 30}` : 'single';
+    
+    // 그룹 폴더 생성
+    const groupFolder = createGroupFolder(groupType, groupName);
+    await fs.mkdir(groupFolder, { recursive: true });
+    
+    // 파일명 생성 (멜론차트는 순위 포함)
+    const fileName = generateFileName(groupType, info.title, 'mp3', options.rank);
+    const outputPath = path.join(groupFolder, fileName);
     
     // 유틸리티 확인
     const { ytdlp, ffmpeg } = await checkUtilities();
@@ -278,8 +456,31 @@ export async function downloadYoutubeMp3(queueId: string, url: string) {
         ytdlpProcess.on('close', async (code) => {
           if (code === 0) {
             try {
-              // 다운로드 정보 가져오기
-              const info: YoutubeInfo = await getYoutubeInfo(url);
+              let coverImagePath: string | null = null;
+              
+              // 멜론차트에서 커버 이미지 처리
+              if (isMelonChart && options.coverUrl) {
+                try {
+                  // 커버 이미지 다운로드
+                  const imageExtension = options.coverUrl.includes('.jpg') ? 'jpg' : 'png';
+                  coverImagePath = path.join(groupFolder, `cover_${Date.now()}.${imageExtension}`);
+                  
+                  await downloadImage(options.coverUrl, coverImagePath);
+                  
+                  // 앨범아트가 포함된 새 파일 생성
+                  const tempOutputPath = path.join(groupFolder, `temp_${fileName}`);
+                  await addAlbumArtToMp3(outputPath, coverImagePath, tempOutputPath);
+                  
+                  // 원본 파일 삭제하고 새 파일로 교체
+                  await fs.unlink(outputPath);
+                  await fs.rename(tempOutputPath, outputPath);
+                  
+                  console.log(`[Melon Chart] 앨범아트가 포함된 MP3 생성 완료: ${fileName}`);
+                } catch (imageError) {
+                  console.error('앨범아트 처리 오류:', imageError);
+                  // 이미지 처리 실패해도 원본 MP3는 유지
+                }
+              }
               
               // 파일 정보 DB에 저장
               const fileInfo = await prisma.file.create({
@@ -290,9 +491,15 @@ export async function downloadYoutubeMp3(queueId: string, url: string) {
                   fileSize: (await fs.stat(outputPath)).size,
                   duration: info.duration || 0,
                   path: outputPath,
-                  thumbnailPath: info.thumbnail || null,
+                  thumbnailPath: coverImagePath || info.thumbnail || null,
+                  groupType: groupType,
+                  groupName: groupName,
+                  rank: options.rank || null,
                 }
               });
+              
+              // 커버 이미지 파일은 썸네일로 사용하기 위해 유지
+              // (삭제하지 않음)
               
               // 다운로드 완료 업데이트
               await prisma.downloadQueue.update({
@@ -385,7 +592,7 @@ export async function downloadYoutubeMp3(queueId: string, url: string) {
 /**
  * 유튜브 720p 비디오 다운로드
  */
-export async function downloadYoutubeVideo(queueId: string, url: string) {
+export async function downloadYoutubeVideo(queueId: string, url: string, options: any = {}) {
   try {
     // 작업 상태 업데이트
     await prisma.downloadQueue.update({
@@ -396,12 +603,21 @@ export async function downloadYoutubeVideo(queueId: string, url: string) {
     // 소켓 이벤트 발신
     emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, 0);
 
-    // 스토리지 디렉토리 생성
-    await fs.mkdir(MEDIA_STORAGE_PATH, { recursive: true });
+    // 동영상 정보 먼저 가져오기
+    const info: YoutubeInfo = await getYoutubeInfo(url);
     
-    // 파일명 생성
-    const timestamp = Date.now();
-    const outputPath = path.join(MEDIA_STORAGE_PATH, `${timestamp}.mp4`);
+    // 멜론차트 여부에 따라 그룹 타입 결정  
+    const isMelonChart = options.isMelonChart || false;
+    const groupType = isMelonChart ? FileGroupType.MELON_CHART : FileGroupType.YOUTUBE_SINGLE;
+    const groupName = isMelonChart ? `TOP${options.chartSize || 30}` : 'single';
+    
+    // 그룹 폴더 생성
+    const groupFolder = createGroupFolder(groupType, groupName);
+    await fs.mkdir(groupFolder, { recursive: true });
+    
+    // 파일명 생성 (멜론차트는 순위 포함)
+    const fileName = generateFileName(groupType, info.title, 'mp4', options.rank);
+    const outputPath = path.join(groupFolder, fileName);
     
     // 유틸리티 확인
     const { ytdlp } = await checkUtilities();
@@ -436,9 +652,6 @@ export async function downloadYoutubeVideo(queueId: string, url: string) {
         
         ytdlpProcess.on('close', async (code) => {
           if (code === 0) {
-            // 파일 정보 가져오기
-            const info = await getYoutubeInfo(url) as any;
-            
             // 파일 DB에 저장
             const file = await prisma.file.create({
               data: {
@@ -449,6 +662,9 @@ export async function downloadYoutubeVideo(queueId: string, url: string) {
                 duration: info.duration || 0,
                 path: outputPath,
                 thumbnailPath: info.thumbnail || null,
+                groupType: groupType,
+                groupName: groupName,
+                rank: options.rank || null,
               }
             });
             
@@ -505,7 +721,7 @@ export async function downloadYoutubeVideo(queueId: string, url: string) {
             await fs.writeFile(outputPath, 'Dummy MP4 file');
             
             // 파일 정보 가져오기
-            const info = await getYoutubeInfo(url) as any;
+            const info: YoutubeInfo = await getYoutubeInfo(url);
             
             // 파일 DB에 저장
             const file = await prisma.file.create({
@@ -568,16 +784,15 @@ export async function downloadPlaylistMp3(queueId: string, url: string) {
     emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, 0);
 
     // 플레이리스트 정보 가져오기
-    const playlistInfo = await getPlaylistInfo(url) as any;
+    const playlistInfo: YoutubePlaylistInfo = await getPlaylistInfo(url);
     const { entries } = playlistInfo;
     
     if (!entries || entries.length === 0) {
       throw new Error('플레이리스트가 비어있거나 항목을 가져올 수 없습니다.');
     }
     
-    // 플레이리스트 폴더 생성
-    const timestamp = Date.now();
-    const playlistFolder = path.join(MEDIA_STORAGE_PATH, `playlist_${timestamp}`);
+    // 플레이리스트 그룹 폴더 생성
+    const playlistFolder = createGroupFolder(FileGroupType.YOUTUBE_PLAYLIST, playlistInfo.title);
     await fs.mkdir(playlistFolder, { recursive: true });
     
     const totalItems = entries.length;
@@ -590,7 +805,8 @@ export async function downloadPlaylistMp3(queueId: string, url: string) {
     // 각 항목 개별 다운로드
     for (const [index, entry] of entries.entries()) {
       const itemUrl = entry.url || `https://youtube.com/watch?v=${entry.id}`;
-      const itemOutputPath = path.join(playlistFolder, `${index + 1}_${timestamp}.mp3`);
+      const fileName = generateFileName(FileGroupType.YOUTUBE_PLAYLIST, entry.title, 'mp3');
+      const itemOutputPath = path.join(playlistFolder, fileName);
       
       try {
         // 진행률 업데이트
@@ -669,6 +885,8 @@ export async function downloadPlaylistMp3(queueId: string, url: string) {
             duration: entry.duration || 0,
             path: itemOutputPath,
             thumbnailPath: entry.thumbnail || null,
+            groupType: FileGroupType.YOUTUBE_PLAYLIST,
+            groupName: playlistInfo.title,
           }
         });
         
@@ -741,16 +959,15 @@ export async function downloadPlaylistVideo(queueId: string, url: string) {
     emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, 0);
 
     // 플레이리스트 정보 가져오기
-    const playlistInfo = await getPlaylistInfo(url) as any;
+    const playlistInfo: YoutubePlaylistInfo = await getPlaylistInfo(url);
     const { entries } = playlistInfo;
     
     if (!entries || entries.length === 0) {
       throw new Error('플레이리스트가 비어있거나 항목을 가져올 수 없습니다.');
     }
     
-    // 플레이리스트 폴더 생성
-    const timestamp = Date.now();
-    const playlistFolder = path.join(MEDIA_STORAGE_PATH, `playlist_video_${timestamp}`);
+    // 플레이리스트 그룹 폴더 생성
+    const playlistFolder = createGroupFolder(FileGroupType.YOUTUBE_PLAYLIST, playlistInfo.title);
     await fs.mkdir(playlistFolder, { recursive: true });
     
     const totalItems = entries.length;

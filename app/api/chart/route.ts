@@ -3,21 +3,27 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { addToQueue } from '@/lib/queue-manager'
 import { DownloadType } from '@/lib/downloader'
-import { nanoid } from 'nanoid'
 
 interface ChartSong {
   rank: number
   title: string
   artist: string
   album?: string
-  url?: string
+  coverUrl?: string
   duration?: string
+}
+
+// 실제 멜론차트 스크래핑 함수 (현재는 더미데이터 사용)
+async function fetchMelonChart(): Promise<ChartSong[]> {
+  // TODO: 실제 멜론차트 웹 스크래핑 구현
+  // 현재는 더미 데이터 반환
+  return mockChartData;
 }
 
 // 멜론 차트 더미 데이터 (실제로는 웹 스크래핑 또는 API 연동)
 const mockChartData: ChartSong[] = [
-  { rank: 1, title: "Ditto", artist: "NewJeans", album: "NewJeans 'OMG'", duration: "3:05" },
-  { rank: 2, title: "Hype Boy", artist: "NewJeans", album: "NewJeans 1st EP 'New Jeans'", duration: "2:58" },
+  { rank: 1, title: "Ditto", artist: "NewJeans", album: "NewJeans 'OMG'", duration: "3:05", coverUrl: "https://picsum.photos/200/200?random=1" },
+  { rank: 2, title: "Hype Boy", artist: "NewJeans", album: "NewJeans 1st EP 'New Jeans'", duration: "2:58", coverUrl: "https://picsum.photos/200/200?random=2" },
   { rank: 3, title: "사건의 지평선", artist: "윤하 (YOUNHA)", album: "YOUNHA 6th Album 'END THEORY'", duration: "4:12" },
   { rank: 4, title: "ANTIFRAGILE", artist: "LE SSERAFIM (르세라핌)", album: "ANTIFRAGILE", duration: "3:26" },
   { rank: 5, title: "Attention", artist: "NewJeans", album: "NewJeans 1st EP 'New Jeans'", duration: "3:01" },
@@ -130,7 +136,13 @@ function filterChart(songs: ChartSong[], excludeKeywords: string[], limit: numbe
     })
   }
   
-  return filtered.slice(0, limit)
+  // 커버 이미지가 없는 항목에 기본 이미지 추가
+  const withCover = filtered.map(song => ({
+    ...song,
+    coverUrl: song.coverUrl || `https://picsum.photos/200/200?random=${song.rank}`
+  }))
+  
+  return withCover.slice(0, limit)
 }
 
 export async function GET(request: NextRequest) {
@@ -144,7 +156,9 @@ export async function GET(request: NextRequest) {
     const size = parseInt(searchParams.get('size') || '30')
     const excludeKeywords = searchParams.get('exclude')?.split(',').filter(Boolean) || []
     
-    const filteredChart = filterChart(mockChartData, excludeKeywords, size)
+    // 실제 차트 데이터 가져오기 (현재는 더미 데이터)
+    const chartData = await fetchMelonChart()
+    const filteredChart = filterChart(chartData, excludeKeywords, size)
     
     return NextResponse.json({
       chart: filteredChart,
@@ -175,17 +189,21 @@ export async function POST(request: NextRequest) {
     
     for (const song of songs) {
       try {
-        // 다운로드 작업을 큐에 추가
-        const jobId = nanoid()
+        // 다운로드 작업을 큐에 추가 (멜론차트용 특별 처리)
         const searchQuery = `${song.artist} ${song.title}`
         
-        await addToQueue(`ytsearch:${searchQuery}`, DownloadType.MP3)
+        const queueItem = await addToQueue(`ytsearch:${searchQuery}`, DownloadType.MP3, {
+          isMelonChart: true,
+          rank: song.rank,
+          chartSize: songs.length,
+          coverUrl: song.coverUrl
+        })
         
         results.push({
           rank: song.rank,
           title: song.title,
           artist: song.artist,
-          jobId,
+          jobId: queueItem.id,
           status: 'queued'
         })
       } catch (error) {

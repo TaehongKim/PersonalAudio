@@ -4,7 +4,7 @@ import { downloadYoutubeMp3, downloadYoutubeVideo, downloadPlaylistMp3, download
 /**
  * 다운로드 큐 최대 동시 작업 수
  */
-const MAX_CONCURRENT_DOWNLOADS = 2;
+const MAX_CONCURRENT_DOWNLOADS = 1;
 
 /**
  * 현재 처리 중인 다운로드 작업 수
@@ -14,7 +14,7 @@ let currentlyProcessing = 0;
 /**
  * 다운로드 큐에 작업 추가
  */
-export async function addToQueue(url: string, type: DownloadType) {
+export async function addToQueue(url: string, type: DownloadType, options?: any) {
   try {
     // 새 작업 생성
     const queueItem = await prisma.downloadQueue.create({
@@ -23,6 +23,8 @@ export async function addToQueue(url: string, type: DownloadType) {
         type,
         status: DownloadStatus.PENDING,
         progress: 0,
+        // 옵션을 JSON으로 저장 (필요시)
+        error: options ? JSON.stringify(options) : null,
       }
     });
 
@@ -66,7 +68,14 @@ export async function processQueue() {
       currentlyProcessing++;
 
       // 비동기로 다운로드 처리
-      processDownload(item.id, item.url, item.type as DownloadType)
+      let options = {};
+      try {
+        options = item.error ? JSON.parse(item.error) : {};
+      } catch (e) {
+        // JSON 파싱 실패 시 빈 객체 사용
+      }
+      
+      processDownload(item.id, item.url, item.type as DownloadType, options)
         .finally(() => {
           currentlyProcessing--;
           // 다음 작업 처리
@@ -82,12 +91,12 @@ export async function processQueue() {
 /**
  * 개별 다운로드 작업 처리
  */
-async function processDownload(id: string, url: string, type: DownloadType) {
+async function processDownload(id: string, url: string, type: DownloadType, options: any = {}) {
   try {
     if (type === DownloadType.MP3) {
-      await downloadYoutubeMp3(id, url);
+      await downloadYoutubeMp3(id, url, options);
     } else if (type === DownloadType.VIDEO) {
-      await downloadYoutubeVideo(id, url);
+      await downloadYoutubeVideo(id, url, options);
     } else if (type === DownloadType.PLAYLIST_MP3) {
       await downloadPlaylistMp3(id, url);
     } else if (type === DownloadType.PLAYLIST_VIDEO) {

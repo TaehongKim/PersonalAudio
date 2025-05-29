@@ -1,20 +1,21 @@
 import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import { DownloadStatus } from './downloader';
+import type { File } from '@prisma/client';
 
 // 타입 정의
 interface DownloadStatusData {
   id: string;
   status: DownloadStatus;
   progress: number;
-  data?: any;
+  data?: Record<string, unknown>;
   timestamp: string;
 }
 
 interface DownloadCompleteData {
   id: string;
   fileId: string;
-  fileData: any;
+  fileData: File;
   timestamp: string;
 }
 
@@ -38,12 +39,12 @@ interface PlaylistItemCompleteData {
   itemIndex: number;
   totalItems: number;
   fileId: string;
-  fileData: any;
+  fileData: File;
   timestamp: string;
 }
 
 // 실제 Socket.io 서버 인스턴스
-let io: Server | null = null;
+let io: Server | undefined = globalThis.io;
 
 /**
  * Socket.io 서버 초기화
@@ -54,7 +55,6 @@ export function initSocketServer(httpServer: HttpServer) {
     return io;
   }
 
-  // Socket.io 서버 생성
   io = new Server(httpServer, {
     path: '/api/socket',
     cors: {
@@ -62,6 +62,7 @@ export function initSocketServer(httpServer: HttpServer) {
       methods: ['GET', 'POST']
     }
   });
+  globalThis.io = io;
 
   // 연결 이벤트 핸들러
   io.on('connection', (socket: Socket) => {
@@ -80,8 +81,8 @@ export function initSocketServer(httpServer: HttpServer) {
     });
 
     // 연결 종료
-    socket.on('disconnect', () => {
-      console.log(`[Socket] 클라이언트 연결 종료: ${socket.id}`);
+    socket.on('disconnect', (reason: string) => {
+      console.log(`[Socket] 클라이언트 연결 종료: ${socket.id}, 이유: ${reason}`);
     });
   });
 
@@ -103,7 +104,7 @@ export function emitDownloadStatusUpdate(
   downloadId: string, 
   status: DownloadStatus, 
   progress: number, 
-  data?: any
+  data?: Record<string, unknown>
 ) {
   if (!io) {
     console.log('[Socket] Socket.io 서버가 초기화되지 않았습니다.');
@@ -126,7 +127,7 @@ export function emitDownloadStatusUpdate(
 /**
  * 다운로드 완료 이벤트 발송
  */
-export function emitDownloadComplete(downloadId: string, fileId: string, fileData: any) {
+export function emitDownloadComplete(downloadId: string, fileId: string, fileData: File) {
   if (!io) {
     console.log('[Socket] Socket.io 서버가 초기화되지 않았습니다.');
     return;
@@ -201,7 +202,7 @@ export function emitPlaylistItemComplete(
   itemIndex: number, 
   totalItems: number, 
   fileId: string, 
-  fileData: any
+  fileData: File
 ) {
   if (!io) {
     console.log('[Socket] Socket.io 서버가 초기화되지 않았습니다.');
@@ -220,4 +221,6 @@ export function emitPlaylistItemComplete(
   io.to(downloadId).emit('playlist:item-complete', eventData);
   
   console.log(`[Socket] 플레이리스트 항목 완료: ${downloadId}, 항목 ${itemIndex+1}/${totalItems}`);
-} 
+}
+
+export default io; 

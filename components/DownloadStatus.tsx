@@ -3,14 +3,34 @@
 import { useEffect, useState } from 'react';
 import { useDownloadStatus } from '@/hooks/useSocket';
 import Link from 'next/link';
+import Image from 'next/image';
 
 interface DownloadStatusProps {
   downloadId: string;
 }
 
+interface DownloadData {
+  url: string;
+  type: string;
+  isPlaylist?: boolean;
+  status?: string;
+  progress?: number;
+  error?: string;
+  files?: Array<{
+    id: string;
+    title: string;
+    artist?: string;
+    fileSize: number;
+  }>;
+  coverUrl?: string;
+  thumbnailPath?: string;
+  title?: string;
+  [key: string]: any;
+}
+
 export default function DownloadStatus({ downloadId }: DownloadStatusProps) {
   const { status, progress, error, playlistItems, isConnected } = useDownloadStatus(downloadId);
-  const [downloadData, setDownloadData] = useState<any>(null);
+  const [downloadData, setDownloadData] = useState<DownloadData | null>(null);
   const [loading, setLoading] = useState(true);
 
   // 초기 상태 가져오기
@@ -174,7 +194,7 @@ export default function DownloadStatus({ downloadId }: DownloadStatusProps) {
               다운로드된 파일
             </h3>
             <div className="space-y-3">
-              {downloadData.files.map((file: any) => (
+              {downloadData.files.map((file) => (
                 <div 
                   key={file.id}
                   className="border border-slate-200 dark:border-slate-700 rounded-lg p-3"

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, FormEvent } from "react"
+import { useState, useEffect, FormEvent } from "react"
 import { Moon, Sun, Bell, Lock, HardDrive, Info, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -30,6 +30,8 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
   const [passwordError, setPasswordError] = useState("")
   const [passwordSuccess, setPasswordSuccess] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [settingsLoading, setSettingsLoading] = useState(true)
+  const [currentStorageUsage, setCurrentStorageUsage] = useState({ used: 0, percentage: 0 })
 
   const handleNotifyDownloadChange = (checked: CheckedState) => {
     setNotifyDownloadComplete(checked === true)
@@ -41,6 +43,62 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
 
   const handleNotifyUpdatesChange = (checked: CheckedState) => {
     setNotifyUpdates(checked === true)
+  }
+
+  // 설정 로드
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        setSettingsLoading(true)
+        
+        // 설정 데이터 로드
+        const settingsResponse = await fetch('/api/settings')
+        if (settingsResponse.ok) {
+          const settingsData = await settingsResponse.json()
+          setStorageLimit(settingsData.storageLimit)
+        }
+        
+        // 현재 저장 공간 사용량 로드
+        const statsResponse = await fetch('/api/files/stats')
+        if (statsResponse.ok) {
+          const statsData = await statsResponse.json()
+          const usedMB = Math.floor(statsData.totalStorageUsed / (1024 * 1024))
+          setCurrentStorageUsage({
+            used: usedMB,
+            percentage: statsData.storageUsagePercentage
+          })
+        }
+      } catch (error) {
+        console.error('설정 로드 오류:', error)
+      } finally {
+        setSettingsLoading(false)
+      }
+    }
+    
+    loadSettings()
+  }, [])
+
+  // 저장 공간 제한 업데이트
+  const handleStorageLimitChange = async (newLimit: number) => {
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          storageLimit: newLimit
+        })
+      })
+      
+      if (response.ok) {
+        setStorageLimit(newLimit)
+      } else {
+        console.error('저장 공간 제한 업데이트 실패')
+      }
+    } catch (error) {
+      console.error('저장 공간 제한 업데이트 오류:', error)
+    }
   }
 
   const handlePasswordChange = async (e: FormEvent<HTMLFormElement>) => {
@@ -66,8 +124,8 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
     try {
       setIsLoading(true)
       
-      const response = await fetch('/api/auth/change-password', {
-        method: 'POST',
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -79,13 +137,13 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
       
       const data = await response.json()
       
-      if (data.success) {
+      if (response.ok) {
         setPasswordSuccess("비밀번호가 성공적으로 변경되었습니다.")
         setCurrentPassword("")
         setNewPassword("")
         setConfirmPassword("")
       } else {
-        setPasswordError(data.message || "비밀번호 변경 실패")
+        setPasswordError(data.error || "비밀번호 변경 실패")
       }
     } catch (error) {
       console.error("비밀번호 변경 오류:", error)
@@ -200,8 +258,9 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
                 min={100}
                 max={1000}
                 step={100}
-                onValueChange={(value) => setStorageLimit(value[0])}
+                onValueChange={(value) => handleStorageLimitChange(value[0])}
                 className="w-full"
+                disabled={settingsLoading}
               />
               <div className="flex justify-between text-xs text-gray-400">
                 <span>100 MB</span>
@@ -209,7 +268,9 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
               </div>
               <div className="flex items-center justify-between pt-2">
                 <span className="text-sm text-gray-400">현재 사용량</span>
-                <span className="text-sm">93.1 MB (18.6%)</span>
+                <span className="text-sm">
+                  {settingsLoading ? '로딩 중...' : `${currentStorageUsage.used} MB (${currentStorageUsage.percentage.toFixed(1)}%)`}
+                </span>
               </div>
             </div>
           </CardContent>

@@ -45,6 +45,17 @@ interface FileData {
   thumbnailPath: string | null
   createdAt: string
   downloads: number
+  groupType?: string
+  groupName?: string
+  rank?: number
+}
+
+// 파일 그룹 인터페이스
+interface FileGroup {
+  groupType: string
+  groupName: string
+  files: FileData[]
+  createdAt: string
 }
 
 interface FilesResponse {
@@ -94,9 +105,54 @@ const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleDateString('ko-KR')
 }
 
+// 파일을 그룹별로 분류하는 함수
+const groupFiles = (files: FileData[]): FileGroup[] => {
+  const grouped = files.reduce((acc, file) => {
+    const groupKey = `${file.groupType || 'unknown'}_${file.groupName || 'unknown'}`
+    
+    if (!acc[groupKey]) {
+      acc[groupKey] = {
+        groupType: file.groupType || 'unknown',
+        groupName: file.groupName || 'unknown',
+        files: [],
+        createdAt: file.createdAt
+      }
+    }
+    
+    acc[groupKey].files.push(file)
+    
+    // 가장 오래된 파일의 날짜를 그룹 생성일로 사용
+    if (file.createdAt < acc[groupKey].createdAt) {
+      acc[groupKey].createdAt = file.createdAt
+    }
+    
+    return acc
+  }, {} as Record<string, FileGroup>)
+  
+  return Object.values(grouped).sort((a, b) => 
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )
+}
+
+// 그룹 타입별 표시명
+const getGroupTypeDisplayName = (groupType: string): string => {
+  switch (groupType) {
+    case 'youtube_single':
+      return '유튜브 단일 파일'
+    case 'youtube_playlist':
+      return '유튜브 플레이리스트'
+    case 'melon_chart':
+      return '멜론차트'
+    default:
+      return '기타'
+  }
+}
+
 export function FilesManager() {
   // 상태 관리
   const [files, setFiles] = useState<FileData[]>([])
+  const [fileGroups, setFileGroups] = useState<FileGroup[]>([])
+  const [viewMode, setViewMode] = useState<'list' | 'groups'>('groups')
   const [stats, setStats] = useState<StatsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -138,6 +194,10 @@ export function FilesManager() {
       const data: FilesResponse = await response.json()
       setFiles(data.files)
       setPagination(data.pagination)
+      
+      // 파일을 그룹별로 분류
+      const groups = groupFiles(data.files)
+      setFileGroups(groups)
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.')
     } finally {
@@ -691,8 +751,23 @@ export function FilesManager() {
                     />
                   </div>
                   <div className="relative">
-                    <div className="w-14 h-14 bg-white/10 rounded mr-3 flex items-center justify-center">
-                      {getFileIcon(file.fileType)}
+                    <div className="w-14 h-14 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
+                      {file.thumbnailPath && file.groupType === 'melon_chart' ? (
+                        <img 
+                          src={`/api/files/${file.id}/thumbnail`} 
+                          alt={`${file.title} 앨범 커버`}
+                          className="w-full h-full object-cover rounded"
+                          onError={(e) => {
+                            // 이미지 로드 실패시 기본 아이콘으로 대체
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            target.nextElementSibling?.classList.remove('hidden');
+                          }}
+                        />
+                      ) : null}
+                      <div className={file.thumbnailPath && file.groupType === 'melon_chart' ? 'hidden' : ''}>
+                        {getFileIcon(file.fileType)}
+                      </div>
                     </div>
                   </div>
                   <div className="flex-1 min-w-0 mr-2">

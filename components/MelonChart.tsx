@@ -4,7 +4,6 @@ import type React from "react"
 
 import { useState, useEffect, useCallback } from "react"
 import { Download, Filter, X, Music, Clock, RefreshCw } from "lucide-react"
-import Image from "next/image"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -14,6 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useSocket } from "@/hooks/useSocket"
+import { useSession } from "@/hooks/useSession"
 
 interface ChartSong {
   rank: number
@@ -44,8 +44,10 @@ export function MelonChart() {
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([])
   const [loading, setLoading] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   
   const socket = useSocket()
+  const { isLoggedIn, isLoading: sessionLoading } = useSession()
 
   const handleAddKeyword = () => {
     if (keywordInput.trim() !== "" && !keywords.includes(keywordInput.trim())) {
@@ -72,17 +74,34 @@ export function MelonChart() {
   
   const fetchChart = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const size = chartSize === 'custom' ? parseInt(customChartSize) || 30 : parseInt(chartSize)
       const excludeParam = keywords.length > 0 ? `&exclude=${keywords.join(',')}` : ''
       
       const response = await fetch(`/api/chart?size=${size}${excludeParam}`)
-      if (!response.ok) throw new Error('Failed to fetch chart')
+      if (response.status === 401) {
+        setError('세션이 만료되었습니다. 페이지를 새로고침해주세요.')
+        setChartSongs([])
+        setLoading(false)
+        return
+      }
+      
+      if (!response.ok) {
+        throw new Error(`서버 오류: ${response.status}`)
+      }
       
       const data = await response.json()
-      setChartSongs(data.chart)
+      const chart = data.chart || [];
+      setChartSongs(chart)
+      
+      if (chart.length === 0) {
+        setError('조건에 맞는 차트 데이터가 없습니다.')
+      }
     } catch (error) {
       console.error('Failed to fetch chart:', error)
+      setError(error instanceof Error ? error.message : '차트를 불러오는데 실패했습니다.')
+      setChartSongs([])
     } finally {
       setLoading(false)
     }
@@ -92,6 +111,7 @@ export function MelonChart() {
     if (chartSongs.length === 0) return
     
     setDownloading(true)
+    setError(null)
     try {
       const response = await fetch('/api/chart', {
         method: 'POST',
@@ -103,21 +123,33 @@ export function MelonChart() {
         })
       })
       
-      if (!response.ok) throw new Error('Failed to start downloads')
+      if (response.status === 401) {
+        throw new Error('다운로드 기능을 사용하려면 먼저 로그인해주세요.')
+      }
+      
+      if (!response.ok) {
+        throw new Error(`다운로드 시작 실패: ${response.status}`)
+      }
       
       const data = await response.json()
       const newTasks = data.results.map((result: Record<string, unknown>) => ({
         jobId: result.jobId || `${result.rank}-${Date.now()}`,
         title: `${result.artist} - ${result.title}`,
-        artist: result.artist,
+        artist: result.artist as string,
         progress: 0,
-        status: result.status,
-        error: result.error
+        status: result.status as DownloadTask['status'],
+        error: result.error as string | undefined,
+        coverUrl: chartSongs.find(s => s.rank === result.rank)?.coverUrl
       }))
       
       setDownloadTasks(prev => [...prev, ...newTasks])
+      
+      if (data.results.some((r: any) => r.status === 'failed')) {
+        setError('일부 다운로드 시작에 실패했습니다.')
+      }
     } catch (error) {
       console.error('Failed to start downloads:', error)
+      setError(error instanceof Error ? error.message : '다운로드를 시작할 수 없습니다.')
     } finally {
       setDownloading(false)
     }
@@ -130,6 +162,11 @@ export function MelonChart() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ songs: [song] })
       })
+      
+      if (response.status === 401) {
+        setError('다운로드 기능을 사용하려면 먼저 로그인해주세요.')
+        return
+      }
       
       if (!response.ok) throw new Error('Failed to start download')
       
@@ -150,23 +187,25 @@ export function MelonChart() {
   }
   
   useEffect(() => {
-    fetchChart()
-  }, [fetchChart])
+    if (!sessionLoading && isLoggedIn) {
+      fetchChart()
+    }
+  }, [fetchChart, sessionLoading, isLoggedIn])
   
   useEffect(() => {
     if (!socket) return
     
     const handleDownloadProgress = (data: Record<string, unknown>) => {
       setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.jobId 
-          ? { ...task, progress: data.progress as number, status: data.status as DownloadTask['status'] }
+        task.jobId === data.id 
+          ? { ...task, progress: data.progress as number, status: 'processing' as const }
           : task
       ))
     }
     
     const handleDownloadComplete = (data: Record<string, unknown>) => {
       setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.jobId 
+        task.jobId === data.id 
           ? { ...task, progress: 100, status: 'completed' as const }
           : task
       ))
@@ -174,13 +213,13 @@ export function MelonChart() {
     
     const handleDownloadError = (data: Record<string, unknown>) => {
       setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.jobId 
+        task.jobId === data.id 
           ? { ...task, status: 'failed' as const, error: data.error as string }
           : task
       ))
     }
     
-    const unsubscribeProgress = socket.on('download:progress', handleDownloadProgress)
+    const unsubscribeProgress = socket.on('download:status', handleDownloadProgress)
     const unsubscribeComplete = socket.on('download:complete', handleDownloadComplete)
     const unsubscribeError = socket.on('download:error', handleDownloadError)
     
@@ -201,39 +240,61 @@ export function MelonChart() {
               <div>
                 <p className="text-sm font-medium mb-3">차트 크기 선택</p>
                 <div className="flex flex-wrap gap-4">
-                  <RadioGroup value={chartSize} onValueChange={handleChartSizeChange} className="flex flex-wrap gap-4">
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="30" id="r30" />
-                      <Label htmlFor="r30">TOP 30</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="50" id="r50" />
-                      <Label htmlFor="r50">TOP 50</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="100" id="r100" />
-                      <Label htmlFor="r100">TOP 100</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="custom" id="rcustom" />
-                      <Label htmlFor="rcustom">직접 입력</Label>
-                    </div>
-                  </RadioGroup>
-
-                  {showCustomInput && (
-                    <div className="w-24">
-                      <Input
-                        type="number"
-                        min="1"
-                        max="100"
-                        placeholder="숫자 입력"
-                        value={customChartSize}
-                        onChange={(e) => setCustomChartSize(e.target.value)}
-                        className="bg-white/5 border-white/20 text-white"
-                      />
-                    </div>
-                  )}
+                  <label>
+                    <input
+                      type="radio"
+                      name="chartSize"
+                      value="30"
+                      checked={chartSize === "30"}
+                      onChange={() => handleChartSizeChange("30")}
+                    />
+                    TOP 30
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="chartSize"
+                      value="50"
+                      checked={chartSize === "50"}
+                      onChange={() => handleChartSizeChange("50")}
+                    />
+                    TOP 50
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="chartSize"
+                      value="100"
+                      checked={chartSize === "100"}
+                      onChange={() => handleChartSizeChange("100")}
+                    />
+                    TOP 100
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="chartSize"
+                      value="custom"
+                      checked={chartSize === "custom"}
+                      onChange={() => handleChartSizeChange("custom")}
+                    />
+                    <Label htmlFor="rcustom">직접 입력</Label>
+                  </label>
                 </div>
+
+                {showCustomInput && (
+                  <div className="w-24">
+                    <Input
+                      type="number"
+                      min="1"
+                      max="100"
+                      placeholder="숫자 입력"
+                      value={customChartSize}
+                      onChange={(e) => setCustomChartSize(e.target.value)}
+                      className="bg-white/5 border-white/20 text-white"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -274,16 +335,18 @@ export function MelonChart() {
                 <Button 
                   className="flex-1 bg-green-600 hover:bg-green-700"
                   onClick={downloadAllSongs}
-                  disabled={downloading || chartSongs.length === 0}
+                  disabled={downloading || chartSongs.length === 0 || !isLoggedIn}
+                  title={!isLoggedIn ? "로그인 후 이용 가능합니다" : ""}
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  {downloading ? '다운로드 중...' : '차트 전체 다운로드'}
+                  {!isLoggedIn ? '로그인 필요' : downloading ? '다운로드 중...' : '차트 전체 다운로드'}
                 </Button>
                 <Button 
                   variant="outline"
                   className="border-white/20 text-white hover:bg-white/10"
                   onClick={fetchChart}
-                  disabled={loading}
+                  disabled={loading || !isLoggedIn}
+                  title={!isLoggedIn ? "로그인 후 이용 가능합니다" : "새로고침"}
                 >
                   <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 </Button>
@@ -292,6 +355,12 @@ export function MelonChart() {
           </CardContent>
         </Card>
       </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-sm">
+          {error}
+        </div>
+      )}
 
       <Tabs defaultValue="preview">
         <TabsList className="bg-white/10 border-white/20">
@@ -312,12 +381,14 @@ export function MelonChart() {
               {chartSongs.map((song) => (
                 <Card key={song.rank} className="bg-white/5 border-white/10 overflow-hidden">
                   <div className="relative">
-                    <Image
+                    <img
                       src={song.coverUrl || "/placeholder.svg"}
-                      width={200}
-                      height={200}
                       alt={`${song.title} album cover`}
                       className="w-full aspect-square object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = "/placeholder.svg";
+                      }}
                     />
                     <div className="absolute top-2 left-2">
                       <Badge className="bg-green-600 px-2 py-1">{song.rank}</Badge>
@@ -326,6 +397,8 @@ export function MelonChart() {
                       size="icon"
                       className="absolute bottom-2 right-2 bg-green-600 hover:bg-green-500 rounded-full h-10 w-10"
                       onClick={() => downloadSingleSong(song)}
+                      disabled={!isLoggedIn}
+                      title={!isLoggedIn ? "로그인 후 이용 가능합니다" : "다운로드"}
                     >
                       <Download className="h-5 w-5" />
                     </Button>
@@ -358,7 +431,7 @@ export function MelonChart() {
                 <Card key={index} className="bg-white/5 border-white/10">
                   <CardContent className="p-4">
                     <div className="flex items-center gap-4">
-                      <Image
+                      <img
                         src={task.coverUrl || "/placeholder.svg"}
                         width={60}
                         height={60}

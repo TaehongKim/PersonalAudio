@@ -23,7 +23,12 @@ export async function GET() {
     });
 
     // 만료된 공유 링크 체크 및 상태 추가
-    const sharesWithStatus = shares.map((share: any) => ({
+    const sharesWithStatus = shares.map((share: {
+      expiresAt: Date | null;
+      maxDownloads: number | null;
+      downloads: number;
+      [key: string]: any;
+    }) => ({
       ...share,
       isExpired: share.expiresAt ? new Date() > share.expiresAt : false,
       isDownloadLimitReached: share.maxDownloads ? share.downloads >= share.maxDownloads : false

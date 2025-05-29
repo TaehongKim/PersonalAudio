@@ -4,6 +4,7 @@ import { validatePassword } from "@/lib/auth";
 
 // NextAuth 설정
 export const authOptions: NextAuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET,
   providers: [
     CredentialsProvider({
       // 인증 제공자 이름

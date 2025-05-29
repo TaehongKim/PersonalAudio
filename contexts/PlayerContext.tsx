@@ -30,8 +30,8 @@ interface PlayerState {
 
 interface PlayerContextType {
   state: PlayerState
-  audioRef: React.RefObject<HTMLAudioElement>
-  videoRef: React.RefObject<HTMLVideoElement>
+  audioRef: React.RefObject<HTMLAudioElement | null>
+  videoRef: React.RefObject<HTMLVideoElement | null>
   // 기본 컨트롤
   play: () => void
   pause: () => void

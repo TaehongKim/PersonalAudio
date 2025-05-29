@@ -73,7 +73,7 @@ export async function GET() {
       storageUsagePercentage: totalStorageUsed._sum.fileSize 
         ? (totalStorageUsed._sum.fileSize / (storageLimit * 1024 * 1024)) * 100 
         : 0,
-      fileTypeStats: fileTypeStats.map((stat: any) => ({
+      fileTypeStats: fileTypeStats.map((stat: { fileType: string; _count: { id: number }; _sum: { fileSize: number | null } }) => ({
         fileType: stat.fileType,
         count: stat._count.id,
         totalSize: stat._sum.fileSize || 0
