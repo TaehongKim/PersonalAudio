@@ -18,7 +18,7 @@ import { PlayerProvider } from "@/contexts/PlayerContext"
 import { useSession } from "@/hooks/useSession"
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState("youtube") // 기본 탭을 youtube로 변경
+  const [activeTab, setActiveTab] = useState("home") // 기본 탭을 home으로 변경
   const [shareCode] = useState<string | null>(null) // 공유 링크 코드
   const isMobile = useMediaQuery("(max-width: 768px)")
   const { isLoggedIn, isLoading, signOut } = useSession()

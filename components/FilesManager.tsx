@@ -506,6 +506,15 @@ export function FilesManager() {
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
+            {/* 전체 선택 버튼은 항상 표시 */}
+            <Button 
+              className="bg-purple-600 hover:bg-purple-700" 
+              onClick={toggleSelectAll}
+              disabled={processingAction !== null || files.length === 0}
+            >
+              {selectedItems.length === files.length && files.length > 0 ? "전체 선택 해제" : "전체 선택"}
+            </Button>
+            
             {selectedItems.length > 0 ? (
               <>
                 <Button
@@ -514,14 +523,7 @@ export function FilesManager() {
                   onClick={() => setSelectedItems([])}
                   disabled={processingAction !== null}
                 >
-                  취소
-                </Button>
-                <Button 
-                  className="bg-purple-600 hover:bg-purple-700" 
-                  onClick={toggleSelectAll}
-                  disabled={processingAction !== null}
-                >
-                  {selectedItems.length === files.length ? "전체 선택 해제" : "전체 선택"}
+                  선택 취소
                 </Button>
                 <Button 
                   className="bg-blue-600 hover:bg-blue-700"
@@ -547,22 +549,11 @@ export function FilesManager() {
                   )}
                   삭제 ({selectedItems.length})
                 </Button>
-              </>
-            ) : (
-              <>
-                <Button 
-                  className="bg-green-600 hover:bg-green-700"
-                  onClick={playAllFiles}
-                  disabled={processingAction !== null || files.length === 0}
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  전체 재생
-                </Button>
                 <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
                   <DialogTrigger asChild>
                     <Button 
-                      className="bg-purple-600 hover:bg-purple-700"
-                      disabled={processingAction !== null || selectedItems.length === 0}
+                      className="bg-yellow-600 hover:bg-yellow-700"
+                      disabled={processingAction !== null}
                     >
                       <Share2 className="w-4 h-4 mr-2" />
                       공유 링크 생성
@@ -640,6 +631,17 @@ export function FilesManager() {
                     </div>
                   </DialogContent>
                 </Dialog>
+              </>
+            ) : (
+              <>
+                <Button 
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={playAllFiles}
+                  disabled={processingAction !== null || files.length === 0}
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  전체 재생
+                </Button>
               </>
             )}
           </div>
