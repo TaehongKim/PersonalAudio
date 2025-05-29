@@ -58,9 +58,14 @@ export function initSocketServer(httpServer: HttpServer) {
   io = new Server(httpServer, {
     path: '/api/socket',
     cors: {
-      origin: '*',
-      methods: ['GET', 'POST']
-    }
+      origin: process.env.NODE_ENV === 'production' 
+        ? false // 프로덕션에서는 동일 origin만 허용
+        : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+      methods: ['GET', 'POST'],
+      credentials: true
+    },
+    transports: ['websocket', 'polling'],
+    allowEIO3: true
   });
   globalThis.io = io;
 

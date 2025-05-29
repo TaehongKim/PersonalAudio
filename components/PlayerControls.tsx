@@ -13,10 +13,7 @@ export function PlayerControls() {
   const { state, togglePlay, next, previous, seek, setVolume, toggleRepeat, toggleShuffle, formatTime } = usePlayer()
   const [showVolumeSlider, setShowVolumeSlider] = useState(false)
 
-  // 플레이어가 활성화되지 않았으면 렌더링하지 않음
-  if (!state.currentFile) {
-    return null
-  }
+  // 현재 파일이 없으면 기본 플레이어 UI 표시
 
   const handleSeek = (value: number[]) => {
     seek(value[0])
@@ -43,22 +40,37 @@ export function PlayerControls() {
         {/* 현재 재생 정보 */}
         <div className="flex items-center space-x-4 flex-1 min-w-0">
           <div className="w-14 h-14 bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center flex-shrink-0">
-            {state.currentFile.fileType.toLowerCase().includes('mp3') ? (
-              <span className="text-xs font-medium">MP3</span>
+            {state.currentFile ? (
+              state.currentFile.fileType.toLowerCase().includes('mp3') ? (
+                <span className="text-xs font-medium">MP3</span>
+              ) : (
+                <span className="text-xs font-medium">MP4</span>
+              )
             ) : (
-              <span className="text-xs font-medium">MP4</span>
+              <span className="text-xs font-medium opacity-50">♪</span>
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-semibold truncate">{state.currentFile.title}</p>
-            <p className={`text-sm truncate ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-              {state.currentFile.artist || '알 수 없는 아티스트'} • {state.currentFile.fileType.toUpperCase()}
-              {state.duration > 0 && ` • ${formatTime(state.duration)}`}
-            </p>
-            {state.playlist.length > 1 && (
-              <p className={`text-xs ${isDark ? "text-gray-500" : "text-gray-400"}`}>
-                {state.currentIndex + 1} / {state.playlist.length}
-              </p>
+            {state.currentFile ? (
+              <>
+                <p className="font-semibold truncate">{state.currentFile.title}</p>
+                <p className={`text-sm truncate ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  {state.currentFile.artist || '알 수 없는 아티스트'} • {state.currentFile.fileType.toUpperCase()}
+                  {state.duration > 0 && ` • ${formatTime(state.duration)}`}
+                </p>
+                {state.playlist.length > 1 && (
+                  <p className={`text-xs ${isDark ? "text-gray-500" : "text-gray-400"}`}>
+                    {state.currentIndex + 1} / {state.playlist.length}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="font-semibold truncate opacity-50">재생 중인 파일 없음</p>
+                <p className={`text-sm truncate ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  파일을 선택하여 재생을 시작하세요
+                </p>
+              </>
             )}
           </div>
         </div>
@@ -73,6 +85,7 @@ export function PlayerControls() {
               size="icon"
               className={`h-8 w-8 ${state.shuffle ? 'text-purple-400' : isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}`}
               onClick={toggleShuffle}
+              disabled={!state.currentFile}
             >
               <Shuffle size={16} />
             </Button>
@@ -82,17 +95,20 @@ export function PlayerControls() {
               variant="ghost"
               size="icon"
               className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
-              onClick={previous}
-              disabled={state.playlist.length <= 1}
+              onClick={() => {
+                console.log('이전 곡 버튼 클릭, 플레이리스트 길이:', state.playlist.length)
+                previous()
+              }}
+              disabled={!state.currentFile || state.playlist.length <= 1}
             >
               <SkipBack size={18} />
             </Button>
             
             {/* 재생/일시정지 */}
             <Button
-              className={`${isDark ? "bg-white text-black hover:bg-gray-200" : "bg-black text-white hover:bg-gray-800"} rounded-full h-10 w-10 p-0 hover:scale-105 transition`}
+              className={`${isDark ? "bg-white text-black hover:bg-gray-200" : "bg-black text-white hover:bg-gray-800"} rounded-full h-10 w-10 p-0 hover:scale-105 transition disabled:opacity-50 disabled:hover:scale-100`}
               onClick={togglePlay}
-              disabled={state.isLoading}
+              disabled={!state.currentFile || state.isLoading}
             >
               {state.isLoading ? (
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
@@ -108,8 +124,11 @@ export function PlayerControls() {
               variant="ghost"
               size="icon"
               className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
-              onClick={next}
-              disabled={state.playlist.length <= 1}
+              onClick={() => {
+                console.log('다음 곡 버튼 클릭, 플레이리스트 길이:', state.playlist.length)
+                next()
+              }}
+              disabled={!state.currentFile || state.playlist.length <= 1}
             >
               <SkipForward size={18} />
             </Button>
@@ -120,6 +139,7 @@ export function PlayerControls() {
               size="icon"
               className={`h-8 w-8 ${state.repeat !== 'none' ? 'text-purple-400' : isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}`}
               onClick={toggleRepeat}
+              disabled={!state.currentFile}
             >
               <Repeat size={16} />
               {state.repeat === 'one' && (
@@ -140,6 +160,7 @@ export function PlayerControls() {
                 step={1}
                 className="w-full"
                 onValueChange={handleSeek}
+                disabled={!state.currentFile}
               />
             </div>
             <span className={`text-xs w-10 ${isDark ? "text-gray-400" : "text-gray-500"}`}>

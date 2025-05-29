@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import { useState, useEffect } from "react"
 import {
   Music,
   FileMusic,
@@ -12,6 +13,8 @@ import {
   HardDrive,
   Youtube,
   TrendingUp,
+  RefreshCw,
+  Video,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -27,68 +30,108 @@ interface QuickAccessItem {
 }
 
 interface RecentDownload {
+  id: string
   title: string
-  artist: string
-  type: string
-  coverUrl: string
-  date: string
+  artist: string | null
+  fileType: string
+  thumbnailPath: string | null
+  createdAt: string
+  downloads: number
 }
 
 interface StorageInfo {
-  used: number
-  total: number
-  categories: {
-    name: string
-    size: number
-    color: string
+  totalFiles: number
+  totalStorageUsed: number
+  storageLimit: number
+  storageUsagePercentage: number
+  fileTypeStats: {
+    fileType: string
+    count: number
+    totalSize: number
   }[]
 }
 
 export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
   const { theme } = useTheme()
   const isDark = theme === "dark"
+  
+  // 상태 관리
+  const [recentDownloads, setRecentDownloads] = useState<RecentDownload[]>([])
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null)
+  const [topChart, setTopChart] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
-  // 최근 다운로드 데이터
-  const recentDownloads: RecentDownload[] = [
-    {
-      title: "아이유 - 좋은 날",
-      artist: "IU",
-      type: "MP3",
-      coverUrl: "/placeholder.svg?height=60&width=60",
-      date: "오늘",
-    },
-    {
-      title: "NewJeans - Ditto",
-      artist: "NewJeans",
-      type: "MP3",
-      coverUrl: "/placeholder.svg?height=60&width=60",
-      date: "오늘",
-    },
-    {
-      title: "BTS - Dynamite",
-      artist: "BTS",
-      type: "MP3",
-      coverUrl: "/placeholder.svg?height=60&width=60",
-      date: "어제",
-    },
-    {
-      title: "BLACKPINK - Pink Venom",
-      artist: "BLACKPINK",
-      type: "720p",
-      coverUrl: "/placeholder.svg?height=60&width=60",
-      date: "어제",
-    },
-  ]
+  // 데이터 로딩 함수들
+  const loadRecentFiles = async () => {
+    try {
+      const response = await fetch('/api/files?limit=4&sortBy=createdAt&sortOrder=desc')
+      if (response.ok) {
+        const data = await response.json()
+        setRecentDownloads(data.files || [])
+      }
+    } catch (error) {
+      console.error('최근 파일 로딩 실패:', error)
+    }
+  }
 
-  // 저장 공간 정보
-  const storageInfo: StorageInfo = {
-    used: 450,
-    total: 1000,
-    categories: [
-      { name: "음악", size: 250, color: "bg-green-500" },
-      { name: "비디오", size: 150, color: "bg-blue-500" },
-      { name: "멜론 차트", size: 50, color: "bg-purple-500" },
-    ],
+  const loadStorageStats = async () => {
+    try {
+      const response = await fetch('/api/files/stats')
+      if (response.ok) {
+        const data = await response.json()
+        setStorageInfo(data)
+      }
+    } catch (error) {
+      console.error('저장 공간 정보 로딩 실패:', error)
+    }
+  }
+
+  const loadTopChart = async () => {
+    try {
+      // 인기 파일들 가져오기 (다운로드 횟수 기준)
+      const response = await fetch('/api/files?limit=5&sortBy=downloads&sortOrder=desc')
+      if (response.ok) {
+        const data = await response.json()
+        setTopChart(data.files || [])
+      }
+    } catch (error) {
+      console.error('인기 파일 로딩 실패:', error)
+    }
+  }
+
+  const loadAllData = async () => {
+    setLoading(true)
+    await Promise.all([
+      loadRecentFiles(),
+      loadStorageStats(),
+      loadTopChart()
+    ])
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    loadAllData()
+  }, [])
+
+  // 유틸리티 함수들
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+  }
+
+  const formatDate = (dateString: string): string => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffTime = Math.abs(now.getTime() - date.getTime())
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    
+    if (diffDays === 1) return '오늘'
+    if (diffDays === 2) return '어제'
+    if (diffDays <= 7) return `${diffDays - 1}일 전`
+    return date.toLocaleDateString('ko-KR')
   }
 
   // 빠른 접근 아이템
@@ -125,18 +168,34 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
     },
   ]
 
-  // 사용 공간 퍼센트 계산
-  const usedPercentage = (storageInfo.used / storageInfo.total) * 100
+  if (loading) {
+    return (
+      <div className={`flex-1 ${isDark ? "bg-gradient-to-b from-blue-900 to-black" : "bg-gradient-to-b from-blue-100 to-white"} text-${isDark ? "white" : "black"} p-4 md:p-8 overflow-y-auto flex items-center justify-center`}>
+        <RefreshCw className="w-8 h-8 animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div
       className={`flex-1 ${isDark ? "bg-gradient-to-b from-blue-900 to-black" : "bg-gradient-to-b from-blue-100 to-white"} text-${isDark ? "white" : "black"} p-4 md:p-8 overflow-y-auto`}
     >
-      <div className="mb-8">
-        <h1 className={`text-3xl font-bold mb-2 ${isDark ? "text-white" : "text-gray-800"}`}>안녕하세요!</h1>
-        <p className={`${isDark ? "text-gray-300" : "text-gray-600"}`}>
-          YC_mp3_Web에 오신 것을 환영합니다. 무엇을 도와드릴까요?
-        </p>
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          <h1 className={`text-3xl font-bold mb-2 ${isDark ? "text-white" : "text-gray-800"}`}>안녕하세요!</h1>
+          <p className={`${isDark ? "text-gray-300" : "text-gray-600"}`}>
+            YC_mp3_Web에 오신 것을 환영합니다. 무엇을 도와드릴까요?
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={loadAllData}
+          className={`${isDark ? "border-white/20 text-white hover:bg-white/10" : "border-gray-300 text-gray-800 hover:bg-gray-100"}`}
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          새로고침
+        </Button>
       </div>
 
       {/* 빠른 접근 섹션 */}
@@ -149,9 +208,9 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
               className={`cursor-pointer hover:scale-105 transition-transform ${isDark ? "bg-white/10 border-white/10 text-white" : "bg-white border-gray-200 text-gray-800"}`}
               onClick={item.onClick}
             >
-              <CardContent className="p-4 flex flex-col items-center justify-center text-center">
-                <div className={`${item.color} w-12 h-12 rounded-full flex items-center justify-center mb-3`}>
-                  <item.icon className="h-6 w-6 text-white" />
+              <CardContent className="p-6 md:p-4 flex flex-col items-center justify-center text-center min-h-[120px] md:min-h-[100px]">
+                <div className={`${item.color} w-14 h-14 md:w-12 md:h-12 rounded-full flex items-center justify-center mb-3`}>
+                  <item.icon className="h-7 w-7 md:h-6 md:w-6 text-white" />
                 </div>
                 <p className="text-sm font-medium">{item.title}</p>
               </CardContent>
@@ -174,29 +233,68 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
           </CardHeader>
           <CardContent className="pb-2">
             <div className="space-y-4">
-              {recentDownloads.map((download, index) => (
-                <div key={index} className="flex items-center">
-                  <div className="relative">
-                    <Image
-                      src={download.coverUrl || "/placeholder.svg"}
-                      width={40}
-                      height={40}
-                      alt={`${download.title} cover`}
-                      className="rounded"
-                    />
-                    {download.type === "MP3" ? (
-                      <Music className="absolute bottom-0 right-0 w-3 h-3 bg-green-600 rounded-full p-0.5" />
-                    ) : (
-                      <Youtube className="absolute bottom-0 right-0 w-3 h-3 bg-red-600 rounded-full p-0.5" />
-                    )}
-                  </div>
-                  <div className="ml-3 flex-1">
-                    <p className={`text-sm font-medium ${isDark ? "text-white" : "text-gray-800"}`}>{download.title}</p>
-                    <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>{download.artist}</p>
-                  </div>
-                  <div className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>{download.date}</div>
+              {recentDownloads.length === 0 ? (
+                <div className="text-center py-4">
+                  <p className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    아직 다운로드한 파일이 없습니다
+                  </p>
                 </div>
-              ))}
+              ) : (
+                recentDownloads.map((download) => (
+                  <div key={download.id} className="flex items-center">
+                    <div className="relative">
+                      {download.thumbnailPath && download.fileType.toLowerCase().includes('mp3') ? (
+                        <Image
+                          src={`/api/files/${download.id}/thumbnail`}
+                          width={40}
+                          height={40}
+                          alt={`${download.title} cover`}
+                          className="rounded object-cover"
+                          onError={(e) => {
+                            const img = e.target as HTMLImageElement;
+                            img.style.display = 'none';
+                            const parent = img.parentElement;
+                            if (parent) {
+                              const iconElement = parent.querySelector('.fallback-icon');
+                              if (iconElement) {
+                                iconElement.classList.remove('hidden');
+                              }
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="w-10 h-10 bg-gray-300 dark:bg-gray-600 rounded flex items-center justify-center">
+                          {download.fileType.toLowerCase().includes('mp3') ? (
+                            <Music className="w-5 h-5 text-green-600" />
+                          ) : (
+                            <Video className="w-5 h-5 text-red-600" />
+                          )}
+                        </div>
+                      )}
+                      <div className={`fallback-icon absolute top-0 left-0 w-10 h-10 bg-gray-300 dark:bg-gray-600 rounded flex items-center justify-center ${download.thumbnailPath && download.fileType.toLowerCase().includes('mp3') ? 'hidden' : ''}`}>
+                        {download.fileType.toLowerCase().includes('mp3') ? (
+                          <Music className="w-5 h-5 text-green-600" />
+                        ) : (
+                          <Video className="w-5 h-5 text-red-600" />
+                        )}
+                      </div>
+                      {download.fileType.toLowerCase().includes('mp3') ? (
+                        <Music className="absolute bottom-0 right-0 w-3 h-3 bg-green-600 rounded-full p-0.5" />
+                      ) : (
+                        <Youtube className="absolute bottom-0 right-0 w-3 h-3 bg-red-600 rounded-full p-0.5" />
+                      )}
+                    </div>
+                    <div className="ml-3 flex-1">
+                      <p className={`text-sm font-medium ${isDark ? "text-white" : "text-gray-800"} truncate`}>{download.title}</p>
+                      <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"} truncate`}>{download.artist || '알 수 없는 아티스트'}</p>
+                    </div>
+                    <div className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"} flex flex-col items-end`}>
+                      <span>{formatDate(download.createdAt)}</span>
+                      <span className="text-xs opacity-75">{download.downloads}회 다운로드</span>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
           <CardFooter>
@@ -221,24 +319,40 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
               저장 공간
             </CardTitle>
             <CardDescription className={isDark ? "text-gray-400" : "text-gray-500"}>
-              {storageInfo.used} MB / {storageInfo.total} MB 사용 중
+              {storageInfo ? `${formatFileSize(storageInfo.totalStorageUsed)} / ${formatFileSize(storageInfo.storageLimit)} 사용 중` : '로딩 중...'}
             </CardDescription>
           </CardHeader>
           <CardContent className="pb-2">
             <div className="space-y-4">
-              <Progress value={usedPercentage} className="h-2" />
-
-              <div className="space-y-2">
-                {storageInfo.categories.map((category, index) => (
-                  <div key={index} className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <div className={`w-3 h-3 rounded-full ${category.color} mr-2`}></div>
-                      <span className={`text-sm ${isDark ? "text-gray-300" : "text-gray-700"}`}>{category.name}</span>
-                    </div>
-                    <span className={`text-sm ${isDark ? "text-gray-300" : "text-gray-700"}`}>{category.size} MB</span>
+              {storageInfo ? (
+                <>
+                  <Progress value={storageInfo.storageUsagePercentage} className="h-2" />
+                  <div className="space-y-2">
+                    {storageInfo.fileTypeStats.map((stat, index) => {
+                      const colors = ['bg-green-500', 'bg-blue-500', 'bg-purple-500', 'bg-yellow-500', 'bg-red-500']
+                      const color = colors[index % colors.length]
+                      return (
+                        <div key={stat.fileType} className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <div className={`w-3 h-3 rounded-full ${color} mr-2`}></div>
+                            <span className={`text-sm ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                              {stat.fileType.toUpperCase()} ({stat.count}개)
+                            </span>
+                          </div>
+                          <span className={`text-sm ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                            {formatFileSize(stat.totalSize)}
+                          </span>
+                        </div>
+                      )
+                    })}
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <div className="text-center py-4">
+                  <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+                  <p className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>저장 공간 정보 로딩 중...</p>
+                </div>
+              )}
             </div>
           </CardContent>
           <CardFooter>
@@ -258,44 +372,97 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
       <div className="mb-8">
         <h2 className={`text-xl font-semibold mb-4 flex items-center ${isDark ? "text-white" : "text-gray-800"}`}>
           <TrendingUp className="h-5 w-5 mr-2" />
-          인기 차트
+          인기 파일
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {[1, 2, 3, 4, 5].map((item) => (
-            <Card
-              key={item}
-              className={`${isDark ? "bg-white/10 border-white/10 text-white" : "bg-white border-gray-200 text-gray-800"}`}
-            >
-              <div className="relative">
-                <Image
-                  src={`/placeholder.svg?height=150&width=150&text=Top ${item}`}
-                  width={150}
-                  height={150}
-                  alt={`Top ${item} album cover`}
-                  className="w-full aspect-square object-cover"
-                />
-                <div className="absolute top-2 left-2">
-                  <div
-                    className={`${isDark ? "bg-green-600" : "bg-green-500"} text-white text-xs font-bold px-2 py-1 rounded-full`}
-                  >
-                    {item}
+          {topChart.length === 0 ? (
+            [1, 2, 3, 4, 5].map((item) => (
+              <Card
+                key={item}
+                className={`${isDark ? "bg-white/10 border-white/10 text-white" : "bg-white border-gray-200 text-gray-800"} animate-pulse`}
+              >
+                <div className="relative">
+                  <div className="w-full aspect-square bg-gray-300 dark:bg-gray-600"></div>
+                  <div className="absolute top-2 left-2">
+                    <div className="bg-gray-400 dark:bg-gray-500 text-xs font-bold px-2 py-1 rounded-full w-6 h-5"></div>
                   </div>
                 </div>
-              </div>
-              <CardContent className="p-3">
-                <p className={`font-medium truncate ${isDark ? "text-white" : "text-gray-800"}`}>인기곡 {item}</p>
-                <p className={`text-sm truncate ${isDark ? "text-gray-400" : "text-gray-500"}`}>아티스트 {item}</p>
-              </CardContent>
-            </Card>
-          ))}
+                <CardContent className="p-3">
+                  <div className="h-4 bg-gray-300 dark:bg-gray-600 rounded mb-2"></div>
+                  <div className="h-3 bg-gray-300 dark:bg-gray-600 rounded w-2/3"></div>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            topChart.map((file, index) => (
+              <Card
+                key={file.id}
+                className={`${isDark ? "bg-white/10 border-white/10 text-white" : "bg-white border-gray-200 text-gray-800"} cursor-pointer hover:scale-105 transition-transform`}
+                onClick={() => setActiveTab("files")}
+              >
+                <div className="relative">
+                  <div className="w-full aspect-square bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
+                    {file.thumbnailPath && file.fileType.toLowerCase().includes('mp3') ? (
+                      <Image
+                        src={`/api/files/${file.id}/thumbnail`}
+                        width={150}
+                        height={150}
+                        alt={`${file.title} 썸네일`}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const img = e.target as HTMLImageElement;
+                          img.style.display = 'none';
+                          const parent = img.parentElement;
+                          if (parent) {
+                            const iconElement = parent.querySelector('.fallback-icon');
+                            if (iconElement) {
+                              iconElement.classList.remove('hidden');
+                            }
+                          }
+                        }}
+                      />
+                    ) : null}
+                    <div className={`fallback-icon ${file.thumbnailPath && file.fileType.toLowerCase().includes('mp3') ? 'hidden' : ''}`}>
+                      {file.fileType.toLowerCase().includes('mp3') ? (
+                        <Music className="w-12 h-12 text-green-400" />
+                      ) : (
+                        <Video className="w-12 h-12 text-red-400" />
+                      )}
+                    </div>
+                  </div>
+                  <div className="absolute top-2 left-2">
+                    <div className="bg-black/70 text-white text-xs font-bold px-2 py-1 rounded-full">
+                      #{index + 1}
+                    </div>
+                  </div>
+                  <div className="absolute bottom-2 right-2">
+                    <div className={`${file.fileType.toLowerCase().includes('mp3') ? 'bg-green-600' : 'bg-blue-600'} text-white text-xs px-2 py-1 rounded`}>
+                      {file.fileType.toUpperCase()}
+                    </div>
+                  </div>
+                </div>
+                <CardContent className="p-4 md:p-3">
+                  <h3 className="font-medium text-sm md:text-xs truncate mb-1">{file.title}</h3>
+                  <p className="text-sm md:text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {file.artist || '알 수 없는 아티스트'}
+                  </p>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-xs text-gray-500">
+                      {file.downloads}회 다운로드
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
         </div>
         <div className="mt-4 text-center">
           <Button
-            className={isDark ? "bg-green-600 hover:bg-green-700" : "bg-green-500 hover:bg-green-600"}
-            onClick={() => setActiveTab("melon")}
+            className={isDark ? "bg-purple-600 hover:bg-purple-700" : "bg-purple-500 hover:bg-purple-600"}
+            onClick={() => setActiveTab("files")}
           >
-            <BarChart2 className="h-4 w-4 mr-2" />
-            멜론 차트 전체보기
+            <FileMusic className="h-4 w-4 mr-2" />
+            내 파일 전체보기
           </Button>
         </div>
       </div>
@@ -334,3 +501,4 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
     </div>
   )
 }
+

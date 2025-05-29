@@ -72,6 +72,10 @@ export async function GET(request: NextRequest) {
           fileSize: true,
           duration: true,
           thumbnailPath: true,
+          sourceUrl: true,
+          groupType: true,
+          groupName: true,
+          rank: true,
           createdAt: true,
           downloads: true,
         }

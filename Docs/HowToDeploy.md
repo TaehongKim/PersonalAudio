@@ -457,3 +457,277 @@ pnpm start
 - 만약 pipx가 없다면 `sudo apt-get install -y pipx`로 설치
 - WSL2가 아닌 환경에서는 각 OS에 맞는 yt-dlp, ffmpeg 설치 방법을 사용
 - bin 경로가 다를 경우, 프로젝트 내 `lib/utils/binary-installer.ts`의 경로 설정을 확인/수정 
+
+# PersonalAudio 배포 가이드
+
+## 필수 종속성 설치
+
+### 1. yt-dlp 설치
+PersonalAudio는 YouTube 다운로드를 위해 yt-dlp를 사용합니다.
+
+#### Ubuntu/Debian (권장)
+```bash
+# pipx를 사용한 설치 (권장)
+sudo apt update
+sudo apt install python3 python3-pip pipx
+pipx install yt-dlp
+
+# 시스템 PATH에 추가
+pipx ensurepath
+source ~/.bashrc
+
+# 설치 확인
+yt-dlp --version
+```
+
+#### pip를 사용한 설치
+```bash
+sudo apt update
+sudo apt install python3 python3-pip
+pip3 install yt-dlp
+
+# 설치 확인
+yt-dlp --version
+```
+
+### 2. FFmpeg 설치
+오디오/비디오 처리를 위해 FFmpeg가 필요합니다.
+
+#### Ubuntu/Debian
+```bash
+sudo apt update
+sudo apt install ffmpeg
+
+# 설치 확인
+ffmpeg -version
+```
+
+#### 수동 설치 (선택사항)
+```bash
+# 최신 버전이 필요한 경우
+sudo add-apt-repository ppa:jonathonf/ffmpeg-4
+sudo apt update
+sudo apt install ffmpeg
+```
+
+### 3. 바이너리 심볼릭 링크 생성
+프로젝트의 bin 폴더에 바이너리에 대한 심볼릭 링크를 생성합니다.
+
+```bash
+# 프로젝트 루트 디렉토리에서 실행
+cd /path/to/PersonalAudio
+
+# bin 디렉토리 생성 (없는 경우)
+mkdir -p bin
+
+# yt-dlp 심볼릭 링크 생성
+ln -sf $(which yt-dlp) bin/yt-dlp
+
+# ffmpeg 심볼릭 링크 생성
+ln -sf $(which ffmpeg) bin/ffmpeg
+
+# 권한 확인
+ls -la bin/
+```
+
+### 4. 환경변수 설정
+`.env` 파일에 바이너리 경로를 설정합니다.
+
+```env
+# .env 파일에 추가
+YT_DLP_PATH=./bin/yt-dlp
+FFMPEG_PATH=./bin/ffmpeg
+```
+
+## 프로젝트 설정
+
+### 1. 의존성 설치
+```bash
+# pnpm을 사용한 패키지 설치
+pnpm install
+```
+
+### 2. 데이터베이스 설정
+```bash
+# Prisma 마이그레이션 실행
+pnpm prisma generate
+pnpm prisma db push
+```
+
+### 3. 환경 변수 설정
+`.env` 파일을 생성하고 필요한 설정을 추가합니다.
+
+```env
+# 데이터베이스
+DATABASE_URL="file:./dev.db"
+
+# NextAuth 설정
+NEXTAUTH_SECRET="your-secret-key"
+NEXTAUTH_URL="http://localhost:3000"
+
+# 애플리케이션 설정
+APP_PASSWORD="your-app-password"
+
+# 바이너리 경로
+YT_DLP_PATH=./bin/yt-dlp
+FFMPEG_PATH=./bin/ffmpeg
+
+# 저장소 경로
+STORAGE_PATH=./storage
+```
+
+### 4. 개발 서버 실행
+```bash
+# 개발 서버 시작
+pnpm dev
+```
+
+## WSL2 환경에서의 특별 고려사항
+
+### 1. 권한 설정
+WSL2에서는 바이너리 실행 권한을 확인해야 합니다.
+
+```bash
+# 실행 권한 부여
+chmod +x bin/yt-dlp
+chmod +x bin/ffmpeg
+
+# 또는 원본 바이너리 권한 확인
+chmod +x $(which yt-dlp)
+chmod +x $(which ffmpeg)
+```
+
+### 2. 네트워크 설정
+WSL2에서 포트 포워딩이 필요한 경우:
+
+```bash
+# Windows PowerShell에서 실행 (관리자 권한)
+netsh interface portproxy add v4tov4 listenport=3000 listenaddress=0.0.0.0 connectport=3000 connectaddress=<WSL2_IP>
+```
+
+### 3. 파일 시스템 성능
+Windows 드라이브 대신 WSL2 파일 시스템을 사용하는 것이 좋습니다.
+
+```bash
+# WSL2 홈 디렉토리에서 작업
+cd ~
+git clone <repository_url>
+cd PersonalAudio
+```
+
+## 프로덕션 배포
+
+### 1. 빌드
+```bash
+# 프로덕션 빌드
+pnpm build
+```
+
+### 2. 서버 실행
+```bash
+# 프로덕션 서버 시작
+pnpm start
+
+# 또는 PM2 사용
+npm install -g pm2
+pm2 start ecosystem.config.js
+```
+
+### 3. 백그라운드 서비스 설정
+systemd 서비스로 등록하여 자동 시작되도록 설정:
+
+```bash
+# /etc/systemd/system/personalaudio.service 파일 생성
+sudo nano /etc/systemd/system/personalaudio.service
+```
+
+```ini
+[Unit]
+Description=PersonalAudio App
+After=network.target
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/path/to/PersonalAudio
+ExecStart=/usr/bin/pnpm start
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# 서비스 활성화
+sudo systemctl enable personalaudio
+sudo systemctl start personalaudio
+sudo systemctl status personalaudio
+```
+
+## 문제 해결
+
+### 일반적인 문제들
+
+#### 1. yt-dlp를 찾을 수 없음
+```bash
+# PATH 확인
+echo $PATH
+which yt-dlp
+
+# 수동으로 PATH 추가
+export PATH=$PATH:/home/username/.local/bin
+```
+
+#### 2. FFmpeg 오류
+```bash
+# FFmpeg 설치 확인
+ffmpeg -version
+
+# 코덱 확인
+ffmpeg -codecs | grep mp3
+```
+
+#### 3. 권한 문제
+```bash
+# 저장소 디렉토리 권한 확인
+chmod 755 storage/
+chown -R $USER:$USER storage/
+```
+
+#### 4. 포트 충돌
+```bash
+# 포트 사용 확인
+sudo netstat -tlnp | grep :3000
+
+# 다른 포트 사용
+PORT=3001 pnpm start
+```
+
+### 로그 확인
+```bash
+# 애플리케이션 로그
+tail -f logs/app.log
+
+# 시스템 서비스 로그
+sudo journalctl -u personalaudio -f
+```
+
+## 성능 최적화
+
+### 1. 다운로드 성능
+- 대역폭에 따라 동시 다운로드 수 조정
+- SSD 사용 권장
+- 충분한 디스크 공간 확보
+
+### 2. 메모리 사용량
+- Node.js 힙 메모리 제한 설정
+- PM2 클러스터 모드 사용 고려
+
+### 3. 보안
+- 방화벽 설정
+- SSL/TLS 인증서 설정
+- 정기적인 업데이트
+
+이 가이드를 따라 PersonalAudio를 성공적으로 배포할 수 있습니다. 

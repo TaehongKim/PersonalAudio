@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     let downloadType: DownloadType;
     
     // 클라이언트에서 _playlist가 포함된 타입이나 직접 플레이리스트 체크
-    if (type.includes('_playlist') || isPlaylist) {
+    if (type.includes('playlist') || isPlaylist) {
       // 플레이리스트인 경우
       if (type.includes('video')) {
         downloadType = DownloadType.PLAYLIST_VIDEO;
@@ -43,12 +43,14 @@ export async function POST(request: Request) {
       }
     } else {
       // 단일 영상인 경우
-      if (type === 'video') {
+      if (type.includes('video') || type === 'video720p') {
         downloadType = DownloadType.VIDEO;
       } else {
         downloadType = DownloadType.MP3; // 기본값
       }
     }
+
+    console.log(`다운로드 요청: URL=${url}, type=${type}, downloadType=${downloadType}, isPlaylist=${isPlaylist}`);
 
     // 다운로드 큐에 추가
     const queueItem = await addToQueue(url, downloadType);

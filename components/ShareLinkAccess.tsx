@@ -96,7 +96,25 @@ export function ShareLinkAccess({ code }: ShareLinkAccessProps) {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'download'
+      
+      // Content-Disposition 헤더에서 파일명 추출 (UTF-8 인코딩 지원)
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let fileName = 'download'
+      if (contentDisposition) {
+        // filename*=UTF-8''encoded_name 형식 파싱
+        const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/)
+        if (filenameStarMatch) {
+          fileName = decodeURIComponent(filenameStarMatch[1])
+        } else {
+          // 일반 filename= 형식 파싱 (fallback)
+          const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/)
+          if (filenameMatch) {
+            fileName = filenameMatch[1]
+          }
+        }
+      }
+      
+      a.download = fileName
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -150,7 +168,25 @@ export function ShareLinkAccess({ code }: ShareLinkAccessProps) {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'files.zip'
+      
+      // Content-Disposition 헤더에서 파일명 추출 (UTF-8 인코딩 지원)
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let fileName = 'files.zip'
+      if (contentDisposition) {
+        // filename*=UTF-8''encoded_name 형식 파싱
+        const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/)
+        if (filenameStarMatch) {
+          fileName = decodeURIComponent(filenameStarMatch[1])
+        } else {
+          // 일반 filename= 형식 파싱 (fallback)
+          const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/)
+          if (filenameMatch) {
+            fileName = filenameMatch[1]
+          }
+        }
+      }
+      
+      a.download = fileName
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)

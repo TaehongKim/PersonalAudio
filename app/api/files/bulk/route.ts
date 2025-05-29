@@ -110,7 +110,7 @@ async function handleBulkDelete(fileIds: string[]) {
 
 async function handleBulkDownload(fileIds: string[]) {
   try {
-    // 파일 정보 조회
+    // 파일 정보 조회 (그룹 정보 포함)
     const files = await prisma.file.findMany({
       where: {
         id: { in: fileIds }
@@ -120,7 +120,10 @@ async function handleBulkDownload(fileIds: string[]) {
         title: true,
         artist: true,
         path: true,
-        fileType: true
+        fileType: true,
+        groupType: true,
+        groupName: true,
+        rank: true
       }
     });
 
@@ -175,8 +178,46 @@ async function handleBulkDownload(fileIds: string[]) {
       }
     });
 
-    // ZIP 파일명 생성
-    const zipFileName = `PersonalAudio_${existingFiles.length}files_${new Date().toISOString().split('T')[0]}.zip`;
+    // ZIP 파일명 생성 (그룹명 기반)
+    let zipFileName: string;
+    
+    // 파일들을 그룹별로 분류
+    const groupedFiles = existingFiles.reduce((acc, file) => {
+      const groupKey = `${file.groupType || 'unknown'}_${file.groupName || 'unknown'}`;
+      if (!acc[groupKey]) {
+        acc[groupKey] = [];
+      }
+      acc[groupKey].push(file);
+      return acc;
+    }, {} as Record<string, typeof existingFiles>);
+    
+    const groupKeys = Object.keys(groupedFiles);
+    
+    if (groupKeys.length === 1) {
+      // 단일 그룹인 경우 그룹명 사용
+      const groupKey = groupKeys[0];
+      const [groupType, groupName] = groupKey.split('_');
+      
+      switch (groupType) {
+        case 'youtube_playlist':
+          zipFileName = `${groupName}.zip`;
+          break;
+        case 'melon_chart':
+          zipFileName = `멜론차트_${groupName}.zip`;
+          break;
+        case 'youtube_single':
+          zipFileName = `유튜브_${groupName}.zip`;
+          break;
+        default:
+          zipFileName = `${groupName || 'Mixed'}.zip`;
+      }
+    } else {
+      // 여러 그룹인 경우 일반적인 이름 사용
+      zipFileName = `PersonalAudio_${existingFiles.length}files_${new Date().toISOString().split('T')[0]}.zip`;
+    }
+    
+    // 파일명 안전성 확보
+    zipFileName = zipFileName.replace(/[<>:"/\\|?*]/g, '_');
 
     // 스트림을 ReadableStream으로 변환
     const stream = Readable.from(archive);

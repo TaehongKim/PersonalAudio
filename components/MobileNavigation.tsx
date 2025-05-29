@@ -24,7 +24,7 @@ export function MobileNavigation({ activeTab, setActiveTab }: MobileNavigationPr
 
   return (
     <div
-      className={`md:hidden fixed bottom-0 left-0 right-0 ${isDark ? "bg-black border-t border-white/10" : "bg-white border-t border-gray-200"} z-10`}
+      className={`md:hidden fixed bottom-0 left-0 right-0 ${isDark ? "bg-black border-t border-white/10" : "bg-white border-t border-gray-200"} z-10 pb-safe`}
     >
       <div className="grid grid-cols-6">
         {tabs.map((tab) => {
@@ -33,7 +33,8 @@ export function MobileNavigation({ activeTab, setActiveTab }: MobileNavigationPr
             <button
               key={tab.id}
               className={cn(
-                "flex flex-col items-center justify-center py-2",
+                "flex flex-col items-center justify-center py-3 px-1 min-h-[60px] transition-colors",
+                "active:bg-gray-100 dark:active:bg-gray-800",
                 activeTab === tab.id
                   ? isDark
                     ? "text-white"
@@ -44,8 +45,8 @@ export function MobileNavigation({ activeTab, setActiveTab }: MobileNavigationPr
               )}
               onClick={() => setActiveTab(tab.id)}
             >
-              <Icon size={20} />
-              <span className="text-xs mt-1">{tab.label}</span>
+              <Icon size={24} />
+              <span className="text-xs mt-1 font-medium">{tab.label}</span>
             </button>
           )
         })}

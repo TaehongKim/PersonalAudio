@@ -68,11 +68,11 @@ export default function Home() {
     <ThemeProvider>
       <PlayerProvider>
         <div className="min-h-screen bg-gray-100 dark:bg-zinc-900 dark:text-white flex flex-col">
-          <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-1 overflow-hidden pb-20">
             {!isMobile && <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />}
             
             {activeTab === "home" && <HomeContent setActiveTab={setActiveTab} />}
-            {activeTab === "youtube" && <MainContent />}
+            {activeTab === "youtube" && <MainContent setActiveTab={setActiveTab} />}
             {activeTab === "melon" && <MelonChart />}
             {activeTab === "files" && <FilesManager />}
             {activeTab === "shares" && <SharesManager />}
@@ -80,8 +80,14 @@ export default function Home() {
               <SettingsManager handleLogout={handleLogout} />
             )}
           </div>
-          <PlayerControls />
-          {isMobile && <MobileNavigation activeTab={activeTab} setActiveTab={setActiveTab} />}
+          <div className="fixed bottom-0 left-0 right-0 z-50">
+            <PlayerControls />
+          </div>
+          {isMobile && (
+            <div className="fixed bottom-20 left-0 right-0 z-40">
+              <MobileNavigation activeTab={activeTab} setActiveTab={setActiveTab} />
+            </div>
+          )}
         </div>
       </PlayerProvider>
     </ThemeProvider>

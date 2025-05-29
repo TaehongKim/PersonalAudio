@@ -13,6 +13,8 @@ export async function POST(request: NextRequest) {
     }
 
     const { groupType, oldGroupName, newGroupName } = await request.json();
+    
+    console.log('그룹명 변경 요청:', { groupType, oldGroupName, newGroupName });
 
     if (!groupType || !oldGroupName || !newGroupName) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -26,96 +28,57 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    console.log(`찾은 파일 수: ${files.length}`);
+
     if (files.length === 0) {
       return NextResponse.json({ error: 'No files found for this group' }, { status: 404 });
     }
 
-    // 파일 시스템에서 폴더 이름 변경 (첫 번째 파일의 경로를 기반으로 계산)
-    const firstFile = files[0];
-    const oldFolderPath = path.dirname(firstFile.path);
-    
-    // 새 폴더 경로 생성
-    const basePath = process.env.MEDIA_STORAGE_PATH || './storage';
-    let newFolderPath: string;
+    // 새 그룹명 계산
+    let newGroupNameForDb: string;
     
     switch (groupType) {
-      case 'youtube_single':
-        // 날짜는 유지하고 그룹명만 변경 (실제로는 단일 파일이라 폴더명 변경이 의미가 없을 수 있음)
-        const datePart = oldGroupName;
-        newFolderPath = path.join(basePath, 'youtube', datePart);
-        break;
       case 'youtube_playlist':
-        newFolderPath = path.join(basePath, 'playlists', newGroupName);
+        newGroupNameForDb = newGroupName;
         break;
       case 'melon_chart':
-        // 날짜_차트크기 형태에서 차트크기 부분만 변경
+        // 멜론차트의 경우 날짜_차트크기 형태 유지
         const melonParts = oldGroupName.split('_');
-        if (melonParts.length === 2) {
-          newFolderPath = path.join(basePath, 'melon', `${melonParts[0]}_${newGroupName}`);
+        if (melonParts.length >= 2) {
+          // 날짜 부분은 유지하고 차트크기/이름 부분만 변경
+          newGroupNameForDb = `${melonParts[0]}_${newGroupName}`;
         } else {
-          newFolderPath = path.join(basePath, 'melon', newGroupName);
+          newGroupNameForDb = newGroupName;
         }
         break;
+      case 'youtube_single':
+        // 유튜브 단일 파일은 날짜 기반이므로 그룹명 변경 제한
+        newGroupNameForDb = oldGroupName; // 변경하지 않음
+        break;
       default:
-        newFolderPath = path.join(basePath, 'others', newGroupName);
+        newGroupNameForDb = newGroupName;
     }
+    
+    console.log(`새 그룹명: ${oldGroupName} → ${newGroupNameForDb}`);
 
-    // 폴더가 실제로 존재하고 이름이 다른 경우에만 이름 변경
-    try {
-      const oldExists = await fs.access(oldFolderPath).then(() => true).catch(() => false);
-      const newExists = await fs.access(newFolderPath).then(() => true).catch(() => false);
-      
-      if (oldExists && !newExists && oldFolderPath !== newFolderPath) {
-        await fs.rename(oldFolderPath, newFolderPath);
-        
-        // 파일 경로들을 새 폴더 경로로 업데이트
-        for (const file of files) {
-          const fileName = path.basename(file.path);
-          const newFilePath = path.join(newFolderPath, fileName);
-          
-          await prisma.file.update({
-            where: { id: file.id },
-            data: { 
-              path: newFilePath,
-              groupName: groupType === 'melon_chart' ? 
-                (oldGroupName.includes('_') ? `${oldGroupName.split('_')[0]}_${newGroupName}` : newGroupName) :
-                newGroupName
-            }
-          });
-        }
-      } else {
-        // 폴더 이름 변경 없이 DB만 업데이트
-        await prisma.file.updateMany({
-          where: {
-            groupType: groupType,
-            groupName: oldGroupName
-          },
-          data: {
-            groupName: groupType === 'melon_chart' ? 
-              (oldGroupName.includes('_') ? `${oldGroupName.split('_')[0]}_${newGroupName}` : newGroupName) :
-              newGroupName
-          }
-        });
+    // 데이터베이스에서 그룹명 업데이트
+    const updateResult = await prisma.file.updateMany({
+      where: {
+        groupType: groupType,
+        groupName: oldGroupName
+      },
+      data: {
+        groupName: newGroupNameForDb
       }
-    } catch (fsError) {
-      console.error('File system operation failed:', fsError);
-      // 파일 시스템 오류가 있어도 DB는 업데이트
-      await prisma.file.updateMany({
-        where: {
-          groupType: groupType,
-          groupName: oldGroupName
-        },
-        data: {
-          groupName: groupType === 'melon_chart' ? 
-            (oldGroupName.includes('_') ? `${oldGroupName.split('_')[0]}_${newGroupName}` : newGroupName) :
-            newGroupName
-        }
-      });
-    }
+    });
+    
+    console.log(`업데이트된 파일 수: ${updateResult.count}`);
 
     return NextResponse.json({ 
       message: 'Group name updated successfully',
-      updatedFiles: files.length 
+      updatedFiles: updateResult.count,
+      oldGroupName,
+      newGroupName: newGroupNameForDb
     });
 
   } catch (error) {

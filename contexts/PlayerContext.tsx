@@ -53,8 +53,8 @@ interface PlayerContextType {
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined)
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
   
   const [state, setState] = useState<PlayerState>({
     currentFile: null,
@@ -231,17 +231,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   // 다음 곡
   const handleNext = () => {
-    if (state.playlist.length <= 1) return
-
     let nextIndex = state.currentIndex + 1
+    let targetPlaylist = state.playlist
+
+    if (targetPlaylist.length <= 1) return
 
     if (state.shuffle) {
       // 셔플 모드: 랜덤 인덱스
-      const availableIndices = state.playlist
+      const availableIndices = targetPlaylist
         .map((_, i) => i)
         .filter(i => i !== state.currentIndex)
       nextIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)]
-    } else if (nextIndex >= state.playlist.length) {
+    } else if (nextIndex >= targetPlaylist.length) {
       // 일반 모드: 끝에 도달
       if (state.repeat === 'all') {
         nextIndex = 0
@@ -251,7 +252,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     setState(prev => ({ ...prev, currentIndex: nextIndex }))
-    loadFile(state.playlist[nextIndex])
+    loadFile(targetPlaylist[nextIndex])
   }
 
   // 이전 곡
