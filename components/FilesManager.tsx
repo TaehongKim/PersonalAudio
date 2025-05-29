@@ -24,6 +24,12 @@ import {
   Edit3,
   Check,
   X,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  HardDrive,
+  Database,
+  ExternalLink,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -50,11 +56,13 @@ interface FileData {
   fileSize: number
   duration: number | null
   thumbnailPath: string | null
+  sourceUrl: string | null
   createdAt: string
   downloads: number
   groupType?: string
   groupName?: string
   rank?: number
+  melonCoverUrl?: string
 }
 
 // 파일 그룹 인터페이스
@@ -63,6 +71,34 @@ interface FileGroup {
   groupName: string
   files: FileData[]
   createdAt: string
+}
+
+// 파일 동기화 상태 인터페이스
+interface FileSyncStatus {
+  id: string
+  title: string
+  path: string
+  dbSize: number
+  actualSize: number
+  exists: boolean
+  sizeMatch: boolean
+  status: 'ok' | 'missing' | 'size_mismatch' | 'error'
+  createdAt: string
+}
+
+interface SyncStats {
+  total: number
+  ok: number
+  missing: number
+  sizeMismatch: number
+  error: number
+}
+
+interface SyncResponse {
+  success: boolean
+  files: FileSyncStatus[]
+  stats: SyncStats
+  orphanedFiles: string[]
 }
 
 interface FilesResponse {
@@ -168,7 +204,7 @@ export function FilesManager() {
   const [sortOrder, setSortOrder] = useState("desc")
   const [filterType, setFilterType] = useState("all")
   const [selectedItems, setSelectedItems] = useState<string[]>([])
-  const { state: playerState, loadFile, loadPlaylist } = usePlayer()
+  const { state: playerState, loadFile, loadPlaylist, play, pause } = usePlayer()
   const [currentPage, setCurrentPage] = useState(1)
   const [pagination, setPagination] = useState<FilesResponse['pagination'] | null>(null)
   const [processingAction, setProcessingAction] = useState<string | null>(null)
@@ -180,6 +216,36 @@ export function FilesManager() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [editingGroup, setEditingGroup] = useState<string | null>(null)
   const [editingGroupName, setEditingGroupName] = useState("")
+  const [melonCoverCache, setMelonCoverCache] = useState<Record<string, string>>({})
+  
+  // 파일 동기화 관련 상태
+  const [showSyncPanel, setShowSyncPanel] = useState(false)
+  const [syncData, setSyncData] = useState<SyncResponse | null>(null)
+  const [syncLoading, setSyncLoading] = useState(false)
+  const [syncStats, setSyncStats] = useState<SyncStats | null>(null)
+
+  // 멜론 앨범 커버 가져오기 함수
+  const fetchMelonCover = useCallback(async (title: string, artist: string): Promise<string | null> => {
+    const cacheKey = `${artist}_${title}`
+    if (melonCoverCache[cacheKey]) {
+      return melonCoverCache[cacheKey]
+    }
+
+    try {
+      const response = await fetch(`/api/melon-cover?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`)
+      if (response.ok) {
+        const data = await response.json()
+        const coverUrl = data.coverUrl
+        if (coverUrl) {
+          setMelonCoverCache(prev => ({ ...prev, [cacheKey]: coverUrl }))
+          return coverUrl
+        }
+      }
+    } catch (error) {
+      console.error('멜론 앨범 커버 가져오기 실패:', error)
+    }
+    return null
+  }, [melonCoverCache])
 
   // 데이터 로딩 함수
   const loadFiles = useCallback(async () => {
@@ -208,6 +274,22 @@ export function FilesManager() {
       // 파일을 그룹별로 분류
       const groups = groupFiles(data.files)
       setFileGroups(groups)
+      
+      // 멜론 차트 파일들의 앨범 커버 가져오기 (썸네일이 없는 경우만)
+      const melonFiles = data.files.filter(file => 
+        file.groupType === 'melon_chart' && 
+        !file.thumbnailPath && 
+        file.title && 
+        file.artist &&
+        !melonCoverCache[`${file.artist}_${file.title}`]
+      )
+      
+      // 비동기로 앨범 커버 가져오기
+      melonFiles.forEach(async (file) => {
+        if (file.title && file.artist) {
+          await fetchMelonCover(file.title, file.artist)
+        }
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.')
     } finally {
@@ -309,7 +391,25 @@ export function FilesManager() {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'download'
+      
+      // Content-Disposition 헤더에서 파일명 추출 (UTF-8 인코딩 지원)
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let fileName = 'download'
+      if (contentDisposition) {
+        // filename*=UTF-8''encoded_name 형식 파싱
+        const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/)
+        if (filenameStarMatch) {
+          fileName = decodeURIComponent(filenameStarMatch[1])
+        } else {
+          // 일반 filename= 형식 파싱 (fallback)
+          const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/)
+          if (filenameMatch) {
+            fileName = filenameMatch[1]
+          }
+        }
+      }
+      
+      a.download = fileName
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -368,7 +468,25 @@ export function FilesManager() {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'files.zip'
+      
+      // Content-Disposition 헤더에서 파일명 추출 (UTF-8 인코딩 지원)
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let fileName = 'files.zip'
+      if (contentDisposition) {
+        // filename*=UTF-8''encoded_name 형식 파싱
+        const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/)
+        if (filenameStarMatch) {
+          fileName = decodeURIComponent(filenameStarMatch[1])
+        } else {
+          // 일반 filename= 형식 파싱 (fallback)
+          const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/)
+          if (filenameMatch) {
+            fileName = filenameMatch[1]
+          }
+        }
+      }
+      
+      a.download = fileName
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -420,19 +538,40 @@ export function FilesManager() {
 
   const togglePlayFile = (file: FileData, e: React.MouseEvent) => {
     e.stopPropagation()
+    console.log('파일 재생 버튼 클릭:', {
+      fileId: file.id,
+      title: file.title,
+      currentFileId: playerState.currentFile?.id,
+      isPlaying: playerState.isPlaying,
+      fileType: file.fileType
+    })
+    
     if (playerState.currentFile?.id === file.id && playerState.isPlaying) {
-      // 현재 재생 중인 파일이면 플레이어를 통해 일시정지
-      // 이 경우 PlayerControls에서 직접 제어하도록 함
-      return
+      // 현재 재생 중인 파일이면 일시정지
+      console.log('현재 파일 일시정지')
+      pause()
+    } else if (playerState.currentFile?.id === file.id && !playerState.isPlaying) {
+      // 현재 파일이지만 재생되지 않고 있으면 재생
+      console.log('현재 파일 재생')
+      play()
     } else {
-      // 새로운 파일 재생
+      // 새로운 파일 로드 후 자동 재생
+      console.log('새 파일 로드 및 재생')
       loadFile(file)
+      // loadFile 이후 잠시 대기 후 재생 시작
+      setTimeout(() => {
+        console.log('자동 재생 시작')
+        play()
+      }, 100)
     }
   }
 
   const playAllFiles = () => {
     if (files.length > 0) {
       loadPlaylist(files, 0)
+      setTimeout(() => {
+        play()
+      }, 100)
     }
   }
 
@@ -440,6 +579,9 @@ export function FilesManager() {
     const audioFiles = groupFiles.filter(file => file.fileType.toLowerCase().includes('mp3'))
     if (audioFiles.length > 0) {
       loadPlaylist(audioFiles, 0)
+      setTimeout(() => {
+        play()
+      }, 100)
     }
   }
 
@@ -461,7 +603,31 @@ export function FilesManager() {
 
     try {
       setProcessingAction(`rename-group-${groupKey}`)
-      const [groupType, oldGroupName] = groupKey.split('_')
+      
+      // groupKey 형태: "groupType_groupName"에서 첫 번째 언더스코어를 기준으로 분리
+      const firstUnderscoreIndex = groupKey.indexOf('_')
+      if (firstUnderscoreIndex === -1) {
+        throw new Error('잘못된 그룹 키 형식입니다.')
+      }
+      
+      const groupType = groupKey.substring(0, firstUnderscoreIndex)
+      const oldGroupName = groupKey.substring(firstUnderscoreIndex + 1)
+      
+      // 해당 그룹에 파일이 있는지 확인
+      const groupExists = fileGroups.some(group => 
+        `${group.groupType}_${group.groupName}` === groupKey && group.files.length > 0
+      )
+      
+      if (!groupExists) {
+        throw new Error('변경하려는 그룹에 파일이 없거나 그룹을 찾을 수 없습니다.')
+      }
+      
+      console.log('그룹명 변경 요청:', { 
+        groupKey, 
+        groupType, 
+        oldGroupName, 
+        newName: newName.trim() 
+      })
       
       const response = await fetch('/api/files/rename-group', {
         method: 'POST',
@@ -476,13 +642,19 @@ export function FilesManager() {
       })
 
       if (!response.ok) {
-        throw new Error('그룹명 변경에 실패했습니다.')
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.error || `HTTP ${response.status}: 그룹명 변경에 실패했습니다.`
+        throw new Error(errorMessage)
       }
+
+      const result = await response.json()
+      console.log('그룹명 변경 성공:', result)
 
       // 파일 목록 새로고침
       await loadFiles()
       cancelEditingGroup()
     } catch (err) {
+      console.error('그룹명 변경 오류:', err)
       setError(err instanceof Error ? err.message : '그룹명 변경 중 오류가 발생했습니다.')
     } finally {
       setProcessingAction(null)
@@ -490,11 +662,16 @@ export function FilesManager() {
   }
 
   const handleGroupDownload = async (groupFiles: FileData[]) => {
-    if (groupFiles.length === 0) return
+    if (!groupFiles || groupFiles.length === 0) {
+      setError('다운로드할 파일이 없습니다. 그룹이 비어있거나 파일을 찾을 수 없습니다.')
+      return
+    }
 
     try {
       setProcessingAction('group-download')
       const fileIds = groupFiles.map(f => f.id)
+      
+      console.log('그룹 다운로드 요청:', { fileCount: groupFiles.length, fileIds })
       
       const response = await fetch('/api/files/bulk', {
         method: 'POST',
@@ -508,19 +685,40 @@ export function FilesManager() {
       })
 
       if (!response.ok) {
-        throw new Error('그룹 다운로드에 실패했습니다.')
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.error || `HTTP ${response.status}: 그룹 다운로드에 실패했습니다.`
+        throw new Error(errorMessage)
       }
 
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'group-files.zip'
+      
+      // Content-Disposition 헤더에서 파일명 추출 (UTF-8 인코딩 지원)
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let fileName = 'group-files.zip'
+      if (contentDisposition) {
+        // filename*=UTF-8''encoded_name 형식 파싱
+        const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/)
+        if (filenameStarMatch) {
+          fileName = decodeURIComponent(filenameStarMatch[1])
+        } else {
+          // 일반 filename= 형식 파싱 (fallback)
+          const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/)
+          if (filenameMatch) {
+            fileName = filenameMatch[1]
+          }
+        }
+      }
+      
+      a.download = fileName
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
     } catch (err) {
+      console.error('그룹 다운로드 오류:', err)
       setError(err instanceof Error ? err.message : '그룹 다운로드 중 오류가 발생했습니다.')
     } finally {
       setProcessingAction(null)
@@ -528,42 +726,118 @@ export function FilesManager() {
   }
 
   const handleCreateShare = async () => {
-    if (selectedItems.length === 0) {
-      setError('공유할 파일을 선택해주세요.')
-      return
-    }
+    if (selectedItems.length === 0) return
 
     try {
-      setProcessingAction('create-share')
+      setProcessingAction('share')
+      
+      const shareData = {
+        fileIds: selectedItems,
+        expiresIn: shareFormData.expiresIn,
+        maxDownloads: shareFormData.maxDownloads
+      }
+
       const response = await fetch('/api/shares', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          fileIds: selectedItems,
-          ...shareFormData
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(shareData)
       })
 
-      if (!response.ok) {
-        throw new Error('공유 링크 생성에 실패했습니다.')
+      if (response.ok) {
+        const result = await response.json()
+        alert(`공유 링크가 생성되었습니다: ${window.location.origin}/share/${result.shortCode}`)
+        setShowShareDialog(false)
+        setSelectedItems([])
+      } else {
+        throw new Error('공유 링크 생성 실패')
       }
-
-      const data = await response.json()
-      
-      // 링크 복사
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(data.share.shareUrl)
-      }
-      
-      setSelectedItems([])
-      setShowShareDialog(false)
-      // TODO: 성공 메시지 표시
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '공유 링크 생성 중 오류가 발생했습니다.')
+    } catch (error) {
+      console.error('공유 링크 생성 오류:', error)
+      alert('공유 링크 생성 중 오류가 발생했습니다.')
     } finally {
       setProcessingAction(null)
+    }
+  }
+
+  // 파일 동기화 체크 함수
+  const checkFileSync = async () => {
+    try {
+      setSyncLoading(true)
+      const response = await fetch('/api/files/sync')
+      if (response.ok) {
+        const data: SyncResponse = await response.json()
+        setSyncData(data)
+        setSyncStats(data.stats)
+      } else {
+        throw new Error('동기화 체크 실패')
+      }
+    } catch (error) {
+      console.error('파일 동기화 체크 오류:', error)
+      alert('파일 동기화 체크 중 오류가 발생했습니다.')
+    } finally {
+      setSyncLoading(false)
+    }
+  }
+
+  // 누락된 파일들을 DB에서 정리
+  const cleanupMissingFiles = async () => {
+    if (!syncData) return
+    
+    const missingFileIds = syncData.files
+      .filter(f => f.status === 'missing')
+      .map(f => f.id)
+    
+    if (missingFileIds.length === 0) {
+      alert('정리할 누락된 파일이 없습니다.')
+      return
+    }
+    
+    if (!confirm(`${missingFileIds.length}개의 누락된 파일을 DB에서 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) {
+      return
+    }
+    
+    try {
+      setSyncLoading(true)
+      const response = await fetch('/api/files/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'cleanup_missing',
+          fileIds: missingFileIds
+        })
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        alert(result.message)
+        // 동기화 데이터 다시 로드
+        await checkFileSync()
+        // 파일 목록도 새로고침
+        await loadFiles()
+      } else {
+        throw new Error('파일 정리 실패')
+      }
+    } catch (error) {
+      console.error('파일 정리 오류:', error)
+      alert('파일 정리 중 오류가 발생했습니다.')
+    } finally {
+      setSyncLoading(false)
+    }
+  }
+
+  // 파일 상태에 따른 아이콘과 색상 반환
+  const getFileStatusInfo = (status: string) => {
+    switch (status) {
+      case 'ok':
+        return { icon: CheckCircle, color: 'text-green-500', text: '정상' }
+      case 'missing':
+        return { icon: XCircle, color: 'text-red-500', text: '파일 없음' }
+      case 'size_mismatch':
+        return { icon: AlertTriangle, color: 'text-yellow-500', text: '크기 불일치' }
+      case 'error':
+        return { icon: XCircle, color: 'text-red-500', text: '오류' }
+      default:
+        return { icon: AlertTriangle, color: 'text-gray-500', text: '알 수 없음' }
     }
   }
 
@@ -641,6 +915,15 @@ export function FilesManager() {
               disabled={loading}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-2 border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10"
+              onClick={() => setShowSyncPanel(!showSyncPanel)}
+              disabled={loading}
+            >
+              <Database className="h-4 w-4" />
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -780,7 +1063,7 @@ export function FilesManager() {
                           onClick={handleCreateShare}
                           disabled={processingAction !== null}
                         >
-                          {processingAction === 'create-share' ? (
+                          {processingAction === 'share' ? (
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                           ) : (
                             <Share2 className="w-4 h-4 mr-2" />
@@ -891,6 +1174,155 @@ export function FilesManager() {
           </div>
         )}
       </div>
+
+      {/* 파일 동기화 패널 */}
+      {showSyncPanel && (
+        <Card className="bg-yellow-900/20 border-yellow-500/30 mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <HardDrive className="h-5 w-5 text-yellow-400 mr-2" />
+                <h3 className="text-lg font-semibold text-yellow-400">파일 동기화 상태</h3>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={checkFileSync}
+                  disabled={syncLoading}
+                  size="sm"
+                  className="bg-yellow-600 hover:bg-yellow-700"
+                >
+                  {syncLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                  )}
+                  동기화 체크
+                </Button>
+                {syncData && syncStats && syncStats.missing > 0 && (
+                  <Button
+                    onClick={cleanupMissingFiles}
+                    disabled={syncLoading}
+                    size="sm"
+                    variant="destructive"
+                  >
+                    누락된 파일 정리 ({syncStats.missing})
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {syncData && syncStats ? (
+              <div className="space-y-4">
+                {/* 통계 요약 */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="bg-green-900/30 border border-green-500/30 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center mb-1">
+                      <CheckCircle className="h-4 w-4 text-green-400 mr-1" />
+                      <span className="text-sm text-green-400">정상</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{syncStats.ok}</div>
+                  </div>
+                  <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center mb-1">
+                      <XCircle className="h-4 w-4 text-red-400 mr-1" />
+                      <span className="text-sm text-red-400">파일 없음</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{syncStats.missing}</div>
+                  </div>
+                  <div className="bg-yellow-900/30 border border-yellow-500/30 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center mb-1">
+                      <AlertTriangle className="h-4 w-4 text-yellow-400 mr-1" />
+                      <span className="text-sm text-yellow-400">크기 불일치</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{syncStats.sizeMismatch}</div>
+                  </div>
+                  <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center mb-1">
+                      <XCircle className="h-4 w-4 text-red-400 mr-1" />
+                      <span className="text-sm text-red-400">오류</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{syncStats.error}</div>
+                  </div>
+                  <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center mb-1">
+                      <Database className="h-4 w-4 text-blue-400 mr-1" />
+                      <span className="text-sm text-blue-400">총 파일</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{syncStats.total}</div>
+                  </div>
+                </div>
+
+                {/* Orphaned 파일들 */}
+                {syncData.orphanedFiles.length > 0 && (
+                  <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4">
+                    <h4 className="font-semibold text-orange-400 mb-2 flex items-center">
+                      <AlertTriangle className="h-4 w-4 mr-2" />
+                      DB에 없는 파일들 ({syncData.orphanedFiles.length}개)
+                    </h4>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {syncData.orphanedFiles.map((filePath, index) => (
+                        <div key={index} className="text-sm text-gray-300 bg-black/20 p-2 rounded">
+                          {filePath.replace(process.cwd(), '.')}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 문제가 있는 파일들 */}
+                {syncData.files.some(f => f.status !== 'ok') && (
+                  <div className="space-y-2">
+                    <h4 className="font-semibold text-red-400 mb-2">문제가 있는 파일들</h4>
+                    <div className="max-h-48 overflow-y-auto space-y-2">
+                      {syncData.files
+                        .filter(f => f.status !== 'ok')
+                        .map((file) => {
+                          const statusInfo = getFileStatusInfo(file.status)
+                          const StatusIcon = statusInfo.icon
+                          return (
+                            <div key={file.id} className="bg-black/20 p-3 rounded-lg flex items-center justify-between">
+                              <div className="flex items-center flex-1 min-w-0">
+                                <StatusIcon className={`h-4 w-4 mr-3 ${statusInfo.color}`} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium truncate">{file.title}</p>
+                                  <p className="text-sm text-gray-400 truncate">{file.path}</p>
+                                  {file.status === 'size_mismatch' && (
+                                    <p className="text-xs text-yellow-400">
+                                      DB: {formatFileSize(file.dbSize)} ↔ 실제: {formatFileSize(file.actualSize)}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <Badge className={statusInfo.color.replace('text-', 'bg-').replace('-500', '-900/50 border-').replace('-500', '-500/50')}>
+                                {statusInfo.text}
+                              </Badge>
+                            </div>
+                          )
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-gray-400 mb-4">파일 동기화 상태를 확인하려면 버튼을 클릭하세요.</p>
+                <Button
+                  onClick={checkFileSync}
+                  disabled={syncLoading}
+                  className="bg-yellow-600 hover:bg-yellow-700"
+                >
+                  {syncLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <HardDrive className="w-4 h-4 mr-2" />
+                  )}
+                  동기화 체크 시작
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 파일 목록 표시 */}
       {files.length === 0 && !loading ? (
@@ -1040,19 +1472,54 @@ export function FilesManager() {
                             </div>
                             <div className="relative">
                               <div className="w-12 h-12 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
-                                {file.thumbnailPath && file.groupType === 'melon_chart' ? (
-                                  <img 
-                                    src={`/api/files/${file.id}/thumbnail`} 
-                                    alt={`${file.title} 앨범 커버`}
-                                    className="w-full h-full object-cover rounded"
-                                    onError={(e) => {
-                                      const target = e.target as HTMLImageElement;
-                                      target.style.display = 'none';
-                                      target.nextElementSibling?.classList.remove('hidden');
-                                    }}
-                                  />
+                                {file.fileType.toLowerCase().includes('mp3') ? (
+                                  <>
+                                    {/* 멜론 차트 파일인 경우 멜론 앨범 커버 우선 표시 */}
+                                    {file.groupType === 'melon_chart' && file.title && file.artist && melonCoverCache[`${file.artist}_${file.title}`] ? (
+                                      <img 
+                                        src={melonCoverCache[`${file.artist}_${file.title}`]}
+                                        alt={`${file.title} 앨범 커버`}
+                                        className="w-full h-full object-cover rounded"
+                                        onError={(e) => {
+                                          const target = e.target as HTMLImageElement;
+                                          target.style.display = 'none';
+                                          const parent = target.parentElement;
+                                          if (parent) {
+                                            const thumbnailImg = parent.querySelector('.thumbnail-img');
+                                            if (thumbnailImg) {
+                                              (thumbnailImg as HTMLElement).style.display = 'block';
+                                            } else {
+                                              const iconElement = parent.querySelector('.fallback-icon');
+                                              if (iconElement) {
+                                                iconElement.classList.remove('hidden');
+                                              }
+                                            }
+                                          }
+                                        }}
+                                      />
+                                    ) : null}
+                                    {/* 기존 썸네일 이미지 (멜론 커버가 없을 때만 표시) */}
+                                    {file.thumbnailPath && !(file.groupType === 'melon_chart' && melonCoverCache[`${file.artist}_${file.title}`]) ? (
+                                      <img 
+                                        src={`/api/files/${file.id}/thumbnail`}
+                                        alt={`${file.title} 앨범 커버`}
+                                        className="thumbnail-img w-full h-full object-cover rounded"
+                                        onError={(e) => {
+                                          const target = e.target as HTMLImageElement;
+                                          target.style.display = 'none';
+                                          const parent = target.parentElement;
+                                          if (parent) {
+                                            const iconElement = parent.querySelector('.fallback-icon');
+                                            if (iconElement) {
+                                              iconElement.classList.remove('hidden');
+                                            }
+                                          }
+                                        }}
+                                      />
+                                    ) : null}
+                                  </>
                                 ) : null}
-                                <div className={file.thumbnailPath && file.groupType === 'melon_chart' ? 'hidden' : ''}>
+                                <div className={`fallback-icon ${(file.thumbnailPath || (file.groupType === 'melon_chart' && melonCoverCache[`${file.artist}_${file.title}`])) && file.fileType.toLowerCase().includes('mp3') ? 'hidden' : ''}`}>
                                   {getFileIcon(file.fileType)}
                                 </div>
                               </div>
@@ -1083,20 +1550,34 @@ export function FilesManager() {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8"
+                                  className="h-10 w-10 md:h-8 md:w-8"
                                   onClick={(e) => togglePlayFile(file, e)}
                                 >
                                   {playerState.currentFile?.id === file.id && playerState.isPlaying ? (
-                                    <Pause className="h-4 w-4 text-green-400" fill="currentColor" />
+                                    <Pause className="h-5 w-5 md:h-4 md:w-4 text-green-400" fill="currentColor" />
                                   ) : (
-                                    <Play className="h-4 w-4" />
+                                    <Play className="h-5 w-5 md:h-4 md:w-4" />
                                   )}
+                                </Button>
+                              )}
+                              {!file.fileType.toLowerCase().includes('mp3') && file.sourceUrl && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-10 w-10 md:h-8 md:w-8 text-blue-400 hover:bg-blue-900/20"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    window.open(file.sourceUrl!, '_blank')
+                                  }}
+                                  title="원본 링크 열기"
+                                >
+                                  <ExternalLink className="h-5 w-5 md:h-4 md:w-4" />
                                 </Button>
                               )}
                               <Button 
                                 size="icon" 
                                 variant="ghost" 
-                                className="h-8 w-8" 
+                                className="h-10 w-10 md:h-8 md:w-8" 
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   handleDownloadFile(file.id)
@@ -1104,15 +1585,15 @@ export function FilesManager() {
                                 disabled={processingAction === `download-${file.id}`}
                               >
                                 {processingAction === `download-${file.id}` ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <Loader2 className="h-5 w-5 md:h-4 md:w-4 animate-spin" />
                                 ) : (
-                                  <Download className="h-4 w-4" />
+                                  <Download className="h-5 w-5 md:h-4 md:w-4" />
                                 )}
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                              <Button 
+                                size="icon" 
+                                variant="ghost" 
+                                className="h-10 w-10 md:h-8 md:w-8 text-red-400 hover:bg-red-900/20" 
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   handleDeleteFile(file.id)
@@ -1120,9 +1601,9 @@ export function FilesManager() {
                                 disabled={processingAction === `delete-${file.id}`}
                               >
                                 {processingAction === `delete-${file.id}` ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <Loader2 className="h-5 w-5 md:h-4 md:w-4 animate-spin" />
                                 ) : (
-                                  <Trash2 className="h-4 w-4" />
+                                  <Trash2 className="h-5 w-5 md:h-4 md:w-4" />
                                 )}
                               </Button>
                             </div>
@@ -1151,21 +1632,55 @@ export function FilesManager() {
                     />
                   </div>
                   <div className="relative">
-                    <div className="w-14 h-14 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
-                      {file.thumbnailPath && file.groupType === 'melon_chart' ? (
-                        <img 
-                          src={`/api/files/${file.id}/thumbnail`} 
-                          alt={`${file.title} 앨범 커버`}
-                          className="w-full h-full object-cover rounded"
-                          onError={(e) => {
-                            // 이미지 로드 실패시 기본 아이콘으로 대체
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            target.nextElementSibling?.classList.remove('hidden');
-                          }}
-                        />
+                    <div className="w-12 h-12 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
+                      {file.fileType.toLowerCase().includes('mp3') ? (
+                        <>
+                          {/* 멜론 차트 파일인 경우 멜론 앨범 커버 우선 표시 */}
+                          {file.groupType === 'melon_chart' && file.title && file.artist && melonCoverCache[`${file.artist}_${file.title}`] ? (
+                            <img 
+                              src={melonCoverCache[`${file.artist}_${file.title}`]}
+                              alt={`${file.title} 앨범 커버`}
+                              className="w-full h-full object-cover rounded"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const parent = target.parentElement;
+                                if (parent) {
+                                  const thumbnailImg = parent.querySelector('.thumbnail-img');
+                                  if (thumbnailImg) {
+                                    (thumbnailImg as HTMLElement).style.display = 'block';
+                                  } else {
+                                    const iconElement = parent.querySelector('.fallback-icon');
+                                    if (iconElement) {
+                                      iconElement.classList.remove('hidden');
+                                    }
+                                  }
+                                }
+                              }}
+                            />
+                          ) : null}
+                          {/* 기존 썸네일 이미지 (멜론 커버가 없을 때만 표시) */}
+                          {file.thumbnailPath && !(file.groupType === 'melon_chart' && melonCoverCache[`${file.artist}_${file.title}`]) ? (
+                            <img 
+                              src={`/api/files/${file.id}/thumbnail`}
+                              alt={`${file.title} 앨범 커버`}
+                              className="thumbnail-img w-full h-full object-cover rounded"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const parent = target.parentElement;
+                                if (parent) {
+                                  const iconElement = parent.querySelector('.fallback-icon');
+                                  if (iconElement) {
+                                    iconElement.classList.remove('hidden');
+                                  }
+                                }
+                              }}
+                            />
+                          ) : null}
+                        </>
                       ) : null}
-                      <div className={file.thumbnailPath && file.groupType === 'melon_chart' ? 'hidden' : ''}>
+                      <div className={`fallback-icon ${(file.thumbnailPath || (file.groupType === 'melon_chart' && melonCoverCache[`${file.artist}_${file.title}`])) && file.fileType.toLowerCase().includes('mp3') ? 'hidden' : ''}`}>
                         {getFileIcon(file.fileType)}
                       </div>
                     </div>
@@ -1204,20 +1719,34 @@ export function FilesManager() {
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="h-8 w-8"
+                        className="h-10 w-10 md:h-8 md:w-8"
                         onClick={(e) => togglePlayFile(file, e)}
                       >
                         {playerState.currentFile?.id === file.id && playerState.isPlaying ? (
-                          <Pause className="h-4 w-4 text-green-400" fill="currentColor" />
+                          <Pause className="h-5 w-5 md:h-4 md:w-4 text-green-400" fill="currentColor" />
                         ) : (
-                          <Play className="h-4 w-4" />
+                          <Play className="h-5 w-5 md:h-4 md:w-4" />
                         )}
+                      </Button>
+                    )}
+                    {!file.fileType.toLowerCase().includes('mp3') && file.sourceUrl && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-10 w-10 md:h-8 md:w-8 text-blue-400 hover:bg-blue-900/20"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          window.open(file.sourceUrl!, '_blank')
+                        }}
+                        title="원본 링크 열기"
+                      >
+                        <ExternalLink className="h-5 w-5 md:h-4 md:w-4" />
                       </Button>
                     )}
                     <Button 
                       size="icon" 
                       variant="ghost" 
-                      className="h-8 w-8" 
+                      className="h-10 w-10 md:h-8 md:w-8" 
                       onClick={(e) => {
                         e.stopPropagation()
                         handleDownloadFile(file.id)
@@ -1225,15 +1754,15 @@ export function FilesManager() {
                       disabled={processingAction === `download-${file.id}`}
                     >
                       {processingAction === `download-${file.id}` ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-5 w-5 md:h-4 md:w-4 animate-spin" />
                       ) : (
-                        <Download className="h-4 w-4" />
+                        <Download className="h-5 w-5 md:h-4 md:w-4" />
                       )}
                     </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                    <Button 
+                      size="icon" 
+                      variant="ghost" 
+                      className="h-10 w-10 md:h-8 md:w-8 text-red-400 hover:bg-red-900/20" 
                       onClick={(e) => {
                         e.stopPropagation()
                         handleDeleteFile(file.id)
@@ -1241,9 +1770,9 @@ export function FilesManager() {
                       disabled={processingAction === `delete-${file.id}`}
                     >
                       {processingAction === `delete-${file.id}` ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-5 w-5 md:h-4 md:w-4 animate-spin" />
                       ) : (
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-5 w-5 md:h-4 md:w-4" />
                       )}
                     </Button>
                   </div>

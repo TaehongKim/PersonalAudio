@@ -30,8 +30,8 @@ interface DownloadTask {
   artist: string
   progress: number
   status: 'queued' | 'processing' | 'completed' | 'failed'
-  coverUrl?: string
   error?: string
+  coverUrl?: string
 }
 
 export function MelonChart() {
@@ -73,17 +73,27 @@ export function MelonChart() {
   }
   
   const fetchChart = useCallback(async () => {
+    if (!isLoggedIn) {
+      setError('로그인이 필요합니다.')
+      return
+    }
+    
     setLoading(true)
     setError(null)
     try {
       const size = chartSize === 'custom' ? parseInt(customChartSize) || 30 : parseInt(chartSize)
       const excludeParam = keywords.length > 0 ? `&exclude=${keywords.join(',')}` : ''
       
-      const response = await fetch(`/api/chart?size=${size}${excludeParam}`)
+      const response = await fetch(`/api/chart?size=${size}${excludeParam}`, {
+        credentials: 'include', // 쿠키 포함
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      
       if (response.status === 401) {
         setError('세션이 만료되었습니다. 페이지를 새로고침해주세요.')
         setChartSongs([])
-        setLoading(false)
         return
       }
       
@@ -92,7 +102,7 @@ export function MelonChart() {
       }
       
       const data = await response.json()
-      const chart = data.chart || [];
+      const chart = data.chart || []
       setChartSongs(chart)
       
       if (chart.length === 0) {
@@ -105,7 +115,7 @@ export function MelonChart() {
     } finally {
       setLoading(false)
     }
-  }, [chartSize, customChartSize, keywords])
+  }, [chartSize, customChartSize, keywords, isLoggedIn])
   
   const downloadAllSongs = async () => {
     if (chartSongs.length === 0) return
@@ -115,7 +125,10 @@ export function MelonChart() {
     try {
       const response = await fetch('/api/chart', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
         body: JSON.stringify({
           songs: chartSongs,
           excludeKeywords: keywords,
@@ -132,8 +145,8 @@ export function MelonChart() {
       }
       
       const data = await response.json()
-      const newTasks = data.results.map((result: Record<string, unknown>) => ({
-        jobId: result.jobId || `${result.rank}-${Date.now()}`,
+      const newTasks = data.results.map((result: any) => ({
+        jobId: result.queueId || `${result.rank}-${Date.now()}`,
         title: `${result.artist} - ${result.title}`,
         artist: result.artist as string,
         progress: 0,
@@ -159,7 +172,10 @@ export function MelonChart() {
     try {
       const response = await fetch('/api/chart', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
         body: JSON.stringify({ songs: [song] })
       })
       
@@ -172,12 +188,13 @@ export function MelonChart() {
       
       const data = await response.json()
       const newTask = {
-        jobId: data.results[0]?.jobId || `${song.rank}-${Date.now()}`,
+        jobId: data.results[0]?.queueId || `${song.rank}-${Date.now()}`,
         title: `${song.artist} - ${song.title}`,
         artist: song.artist,
         progress: 0,
         status: data.results[0]?.status || 'queued' as const,
-        error: data.results[0]?.error
+        error: data.results[0]?.error,
+        coverUrl: song.coverUrl
       }
       
       setDownloadTasks(prev => [...prev, newTask])
@@ -191,44 +208,47 @@ export function MelonChart() {
       fetchChart()
     }
   }, [fetchChart, sessionLoading, isLoggedIn])
-  
+
+  // Socket.IO 이벤트 리스너
   useEffect(() => {
-    if (!socket) return
-    
-    const handleDownloadProgress = (data: Record<string, unknown>) => {
-      setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.id 
-          ? { ...task, progress: data.progress as number, status: 'processing' as const }
-          : task
-      ))
+    if (!socket.isConnected) return
+
+    const handleDownloadStatus = (data: any) => {
+      setDownloadTasks(prev => 
+        prev.map(task => 
+          task.jobId === data.id 
+            ? { ...task, progress: data.progress, status: data.status }
+            : task
+        )
+      )
     }
-    
-    const handleDownloadComplete = (data: Record<string, unknown>) => {
-      setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.id 
-          ? { ...task, progress: 100, status: 'completed' as const }
-          : task
-      ))
-    }
-    
-    const handleDownloadError = (data: Record<string, unknown>) => {
-      setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.id 
-          ? { ...task, status: 'failed' as const, error: data.error as string }
-          : task
-      ))
-    }
-    
-    const unsubscribeProgress = socket.on('download:status', handleDownloadProgress)
-    const unsubscribeComplete = socket.on('download:complete', handleDownloadComplete)
-    const unsubscribeError = socket.on('download:error', handleDownloadError)
-    
-    return () => {
-      unsubscribeProgress()
-      unsubscribeComplete()
-      unsubscribeError()
-    }
+
+    const cleanup = socket.on('download:status', handleDownloadStatus)
+    return cleanup
   }, [socket])
+
+  if (sessionLoading) {
+    return (
+      <div className="flex-1 bg-gradient-to-b from-green-900 to-black text-white p-4 md:p-8 flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4" />
+          <p>로딩 중...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isLoggedIn) {
+    return (
+      <div className="flex-1 bg-gradient-to-b from-green-900 to-black text-white p-4 md:p-8 flex items-center justify-center">
+        <div className="text-center">
+          <Music className="w-16 h-16 mx-auto mb-4 opacity-50" />
+          <h2 className="text-2xl font-bold mb-2">로그인이 필요합니다</h2>
+          <p className="text-gray-300 mb-4">멜론 차트를 이용하려면 먼저 로그인해주세요.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex-1 bg-gradient-to-b from-green-900 to-black text-white p-4 md:p-8 overflow-y-auto">
@@ -239,96 +259,70 @@ export function MelonChart() {
             <div className="space-y-6">
               <div>
                 <p className="text-sm font-medium mb-3">차트 크기 선택</p>
-                <div className="flex flex-wrap gap-4">
-                  <label>
-                    <input
-                      type="radio"
-                      name="chartSize"
-                      value="30"
-                      checked={chartSize === "30"}
-                      onChange={() => handleChartSizeChange("30")}
-                    />
-                    TOP 30
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      name="chartSize"
-                      value="50"
-                      checked={chartSize === "50"}
-                      onChange={() => handleChartSizeChange("50")}
-                    />
-                    TOP 50
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      name="chartSize"
-                      value="100"
-                      checked={chartSize === "100"}
-                      onChange={() => handleChartSizeChange("100")}
-                    />
-                    TOP 100
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      name="chartSize"
-                      value="custom"
-                      checked={chartSize === "custom"}
-                      onChange={() => handleChartSizeChange("custom")}
-                    />
+                <RadioGroup value={chartSize} onValueChange={handleChartSizeChange} className="flex flex-wrap gap-4">
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="30" id="r30" />
+                    <Label htmlFor="r30">TOP 30</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="50" id="r50" />
+                    <Label htmlFor="r50">TOP 50</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="100" id="r100" />
+                    <Label htmlFor="r100">TOP 100</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="custom" id="rcustom" />
                     <Label htmlFor="rcustom">직접 입력</Label>
-                  </label>
-                </div>
-
+                  </div>
+                </RadioGroup>
+                
                 {showCustomInput && (
-                  <div className="w-24">
+                  <div className="mt-3">
                     <Input
                       type="number"
-                      min="1"
-                      max="100"
-                      placeholder="숫자 입력"
+                      placeholder="숫자 입력 (1-100)"
                       value={customChartSize}
                       onChange={(e) => setCustomChartSize(e.target.value)}
-                      className="bg-white/5 border-white/20 text-white"
+                      className="w-32 bg-white/10 border-white/20 text-white placeholder-gray-400"
+                      min="1"
+                      max="100"
                     />
                   </div>
                 )}
               </div>
 
               <div>
-                <p className="text-sm font-medium mb-3">제외 키워드 설정</p>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {keywords.map((keyword, index) => (
-                    <Badge key={index} className="bg-green-700 hover:bg-green-600 px-3 py-1 flex items-center gap-1">
-                      {keyword}
-                      <button
-                        onClick={() => handleRemoveKeyword(keyword)}
-                        className="ml-1 hover:bg-green-800 rounded-full"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex gap-2">
+                <p className="text-sm font-medium mb-3">제외할 키워드</p>
+                <div className="flex gap-2 mb-3">
                   <Input
-                    placeholder="제외할 키워드 입력 후 Enter"
+                    placeholder="키워드 입력"
                     value={keywordInput}
                     onChange={(e) => setKeywordInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="bg-white/5 border-white/20 text-white"
+                    className="flex-1 bg-white/10 border-white/20 text-white placeholder-gray-400"
                   />
-                  <Button
-                    variant="outline"
-                    className="border-white/20 text-white hover:bg-white/10"
-                    onClick={handleAddKeyword}
-                  >
-                    <Filter className="w-4 h-4 mr-2" />
-                    추가
+                  <Button onClick={handleAddKeyword} variant="outline" className="border-white/20 text-white hover:bg-white/10">
+                    <Filter className="w-4 h-4" />
                   </Button>
                 </div>
+                
+                {keywords.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {keywords.map((keyword) => (
+                      <Badge
+                        key={keyword}
+                        variant="secondary"
+                        className="bg-red-900/50 text-red-200 border-red-700/50 cursor-pointer hover:bg-red-900/70"
+                        onClick={() => handleRemoveKeyword(keyword)}
+                      >
+                        {keyword}
+                        <X className="w-3 h-3 ml-1" />
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2">
@@ -437,31 +431,19 @@ export function MelonChart() {
                         height={60}
                         alt={`${task.title} cover`}
                         className="rounded"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = "/placeholder.svg";
+                        }}
                       />
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center mb-1">
-                          <p className="font-medium">{task.title}</p>
-                          <div className="flex items-center">
-                            {task.status === "processing" ? (
-                              <Badge className="bg-blue-600">
-                                <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
-                                진행중
-                              </Badge>
-                            ) : task.status === "completed" ? (
-                              <Badge className="bg-green-600">완료</Badge>
-                            ) : task.status === "failed" ? (
-                              <Badge className="bg-red-600">실패</Badge>
-                            ) : (
-                              <Badge className="bg-yellow-600">대기중</Badge>
-                            )}
-                          </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{task.title}</p>
+                        <p className="text-sm text-gray-400 truncate">{task.artist}</p>
+                        
+                        <div className="mt-2">
+                          <Progress value={task.progress} className="h-2" />
                         </div>
-                        {task.status !== 'failed' && (
-                          <div className="flex items-center gap-2">
-                            <Progress value={task.progress} className="h-2 flex-1" />
-                            <span className="text-xs text-gray-400 min-w-[40px] text-right">{task.progress}%</span>
-                          </div>
-                        )}
+                        
                         <div className="flex justify-between items-center mt-2 text-xs text-gray-400">
                           <div className="flex items-center">
                             <Music className="w-3 h-3 mr-1" />

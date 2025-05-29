@@ -77,10 +77,26 @@ interface YoutubePlaylistInfo {
  */
 function sanitizeFileName(filename: string): string {
   return filename
-    .replace(/[<>:"/\\|?*]/g, '') // 윈도우 금지 문자
-    .replace(/[^\x00-\x7F]/g, (char) => char) // 유니코드 유지
+    // 해시태그 제거 (#shorts, #아야카 등)
+    .replace(/#[^\s#]*/g, '')
+    // 윈도우 금지 문자 제거
+    .replace(/[<>:"/\\|?*]/g, '')
+    // 추가 특수문자 제거 (파일 시스템에 안전하지 않은 문자들)
+    .replace(/[\[\]{}()~`!@$%^&+=;,]/g, '')
+    // 연속된 공백을 하나로 변환
+    .replace(/\s+/g, ' ')
+    // 앞뒤 공백 제거
     .trim()
-    .substring(0, 200); // 길이 제한
+    // 언더스코어로 공백 대체 (파일명에 공백이 문제가 될 수 있음)
+    .replace(/\s/g, '_')
+    // 연속된 언더스코어를 하나로 변환
+    .replace(/_+/g, '_')
+    // 시작과 끝의 언더스코어 제거
+    .replace(/^_+|_+$/g, '')
+    // 길이 제한 (더 안전하게)
+    .substring(0, 150)
+    // 마지막에 빈 문자열이면 기본값 설정
+    || 'untitled';
 }
 
 /**
@@ -197,18 +213,28 @@ function generateFileName(
   type: FileGroupType, 
   originalTitle: string, 
   extension: string, 
-  rank?: number
+  rank?: number,
+  artist?: string
 ): string {
   const sanitizedTitle = sanitizeFileName(originalTitle);
+  const sanitizedArtist = artist ? sanitizeFileName(artist) : '';
   
   switch (type) {
     case FileGroupType.YOUTUBE_SINGLE:
     case FileGroupType.YOUTUBE_PLAYLIST:
-      return `${sanitizedTitle}.${extension}`;
+      // 제목_가수 형식 (가수명이 있는 경우)
+      return sanitizedArtist ? `${sanitizedTitle}_${sanitizedArtist}.${extension}` : `${sanitizedTitle}.${extension}`;
     case FileGroupType.MELON_CHART:
-      return rank ? `${rank}_${sanitizedTitle}.${extension}` : `${sanitizedTitle}.${extension}`;
+      // 순위가 있는 경우: 순위_제목_가수명, 순위가 없는 경우: 제목_가수
+      if (rank && sanitizedArtist) {
+        return `${rank}_${sanitizedTitle}_${sanitizedArtist}.${extension}`;
+      } else if (sanitizedArtist) {
+        return `${sanitizedTitle}_${sanitizedArtist}.${extension}`;
+      } else {
+        return rank ? `${rank}_${sanitizedTitle}.${extension}` : `${sanitizedTitle}.${extension}`;
+      }
     default:
-      return `${sanitizedTitle}.${extension}`;
+      return sanitizedArtist ? `${sanitizedTitle}_${sanitizedArtist}.${extension}` : `${sanitizedTitle}.${extension}`;
   }
 }
 
@@ -410,8 +436,11 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
     const groupFolder = createGroupFolder(groupType, groupName);
     await fs.mkdir(groupFolder, { recursive: true });
     
-    // 파일명 생성 (멜론차트는 순위 포함)
-    const fileName = generateFileName(groupType, info.title, 'mp3', options.rank);
+    // 파일명 생성 (멜론차트는 순위 포함, 가수명 포함)
+    // 멜론차트의 경우 원본 제목과 아티스트 정보를 사용
+    const titleForFile = isMelonChart && options.title ? options.title : info.title;
+    const artistForFile = isMelonChart && options.artist ? options.artist : info.uploader;
+    const fileName = generateFileName(groupType, titleForFile, 'mp3', options.rank, artistForFile);
     const outputPath = path.join(groupFolder, fileName);
     
     // 유틸리티 확인
@@ -483,15 +512,26 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
               }
               
               // 파일 정보 DB에 저장
+              let fileSize = 0;
+              try {
+                const fileStat = await fs.stat(outputPath);
+                fileSize = fileStat.size;
+              } catch (statError) {
+                console.error('파일 상태 확인 실패:', statError);
+                // 파일이 없으면 기본 크기 0으로 설정
+                fileSize = 0;
+              }
+
               const fileInfo = await prisma.file.create({
                 data: {
-                  title: info.title || '제목 없음',
-                  artist: info.uploader || '알 수 없는 아티스트',
+                  title: titleForFile || '제목 없음',
+                  artist: artistForFile || '알 수 없는 아티스트',
                   fileType: 'mp3',
-                  fileSize: (await fs.stat(outputPath)).size,
+                  fileSize: fileSize,
                   duration: info.duration || 0,
                   path: outputPath,
                   thumbnailPath: coverImagePath || info.thumbnail || null,
+                  sourceUrl: url, // 원본 유튜브 URL 저장
                   groupType: groupType,
                   groupName: groupName,
                   rank: options.rank || null,
@@ -615,8 +655,11 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
     const groupFolder = createGroupFolder(groupType, groupName);
     await fs.mkdir(groupFolder, { recursive: true });
     
-    // 파일명 생성 (멜론차트는 순위 포함)
-    const fileName = generateFileName(groupType, info.title, 'mp4', options.rank);
+    // 파일명 생성 (멜론차트는 순위 포함, 가수명 포함)
+    // 멜론차트의 경우 원본 제목과 아티스트 정보를 사용
+    const titleForFile = isMelonChart && options.title ? options.title : info.title;
+    const artistForFile = isMelonChart && options.artist ? options.artist : info.uploader;
+    const fileName = generateFileName(groupType, titleForFile, 'mp4', options.rank, artistForFile);
     const outputPath = path.join(groupFolder, fileName);
     
     // 유틸리티 확인
@@ -652,32 +695,65 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
         
         ytdlpProcess.on('close', async (code) => {
           if (code === 0) {
-            // 파일 DB에 저장
-            const file = await prisma.file.create({
-              data: {
-                title: info.title || '알 수 없는 제목',
-                artist: info.uploader || '알 수 없는 아티스트',
-                fileType: 'MP4',
-                fileSize: (await fs.stat(outputPath)).size,
-                duration: info.duration || 0,
-                path: outputPath,
-                thumbnailPath: info.thumbnail || null,
-                groupType: groupType,
-                groupName: groupName,
-                rank: options.rank || null,
+            try {
+              // 파일 존재 여부 확인 후 크기 가져오기
+              let fileSize = 0;
+              if (ytdlp) {
+                try {
+                  const fileStat = await fs.stat(outputPath);
+                  fileSize = fileStat.size;
+                } catch (statError) {
+                  console.error('파일 상태 확인 실패:', statError);
+                  fileSize = 0;
+                }
+              } else {
+                fileSize = 10 * 1024 * 1024; // 더미 크기
               }
-            });
-            
-            // 작업 완료 상태 업데이트
-            await prisma.downloadQueue.update({
-              where: { id: queueId },
-              data: { status: DownloadStatus.COMPLETED, progress: 100 }
-            });
-            
-            // 소켓 이벤트 발신
-            emitDownloadComplete(queueId, file.id, file);
-            
-            resolve(file);
+
+              // 파일 DB에 저장
+              const file = await prisma.file.create({
+                data: {
+                  title: titleForFile || '알 수 없는 제목',
+                  artist: artistForFile || '알 수 없는 아티스트',
+                  fileType: 'MP4',
+                  fileSize: fileSize,
+                  duration: info.duration || 0,
+                  path: outputPath,
+                  thumbnailPath: info.thumbnail || null,
+                  sourceUrl: url, // 원본 유튜브 URL 저장
+                  groupType: groupType,
+                  groupName: groupName,
+                  rank: options.rank || null,
+                }
+              });
+              
+              // 작업 완료 상태 업데이트
+              await prisma.downloadQueue.update({
+                where: { id: queueId },
+                data: { status: DownloadStatus.COMPLETED, progress: 100 }
+              });
+              
+              // 소켓 이벤트 발신
+              emitDownloadComplete(queueId, file.id, file);
+              
+              resolve(file);
+            } catch (dbError) {
+              console.error('데이터베이스 저장 오류:', dbError);
+              
+              // 작업 실패 상태 업데이트
+              await prisma.downloadQueue.update({
+                where: { id: queueId },
+                data: { 
+                  status: DownloadStatus.FAILED, 
+                  error: `데이터베이스 저장 실패: ${dbError instanceof Error ? dbError.message : '알 수 없는 오류'}` 
+                }
+              });
+              
+              // 소켓 이벤트 발신
+              emitDownloadError(queueId, `데이터베이스 저장 실패: ${dbError instanceof Error ? dbError.message : '알 수 없는 오류'}`);
+              
+              reject(dbError);
+            }
           } else {
             // 작업 실패 상태 업데이트
             await prisma.downloadQueue.update({
@@ -733,6 +809,10 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
                 duration: info.duration || 0,
                 path: outputPath,
                 thumbnailPath: info.thumbnail || null,
+                sourceUrl: url, // 원본 유튜브 URL 저장
+                groupType: groupType,
+                groupName: groupName,
+                rank: options.rank || null,
               }
             });
             
@@ -805,7 +885,7 @@ export async function downloadPlaylistMp3(queueId: string, url: string) {
     // 각 항목 개별 다운로드
     for (const [index, entry] of entries.entries()) {
       const itemUrl = entry.url || `https://youtube.com/watch?v=${entry.id}`;
-      const fileName = generateFileName(FileGroupType.YOUTUBE_PLAYLIST, entry.title, 'mp3');
+      const fileName = generateFileName(FileGroupType.YOUTUBE_PLAYLIST, entry.title, 'mp3', undefined, entry.uploader);
       const itemOutputPath = path.join(playlistFolder, fileName);
       
       try {
@@ -947,7 +1027,7 @@ export async function downloadPlaylistMp3(queueId: string, url: string) {
 /**
  * 유튜브 플레이리스트 비디오 다운로드
  */
-export async function downloadPlaylistVideo(queueId: string, url: string) {
+export async function downloadPlaylistVideo(queueId: string, url: string, options: any = {}) {
   try {
     // 작업 상태 업데이트
     await prisma.downloadQueue.update({
@@ -980,7 +1060,7 @@ export async function downloadPlaylistVideo(queueId: string, url: string) {
     // 각 항목 개별 다운로드
     for (const [index, entry] of entries.entries()) {
       const itemUrl = entry.url || `https://youtube.com/watch?v=${entry.id}`;
-      const fileName = generateFileName(FileGroupType.YOUTUBE_PLAYLIST, entry.title, 'mp4');
+      const fileName = generateFileName(FileGroupType.YOUTUBE_PLAYLIST, entry.title, 'mp4', undefined, entry.uploader);
       const itemOutputPath = path.join(playlistFolder, fileName);
       
       try {
@@ -1047,17 +1127,32 @@ export async function downloadPlaylistVideo(queueId: string, url: string) {
         }
         
         // 파일 DB에 저장
+        let fileSize = 0;
+        if (ytdlp) {
+          try {
+            const fileStat = await fs.stat(itemOutputPath);
+            fileSize = fileStat.size;
+          } catch (statError) {
+            console.error('파일 상태 확인 실패:', statError);
+            fileSize = 0;
+          }
+        } else {
+          fileSize = 10 * 1024 * 1024; // 더미 크기
+        }
+
         const file = await prisma.file.create({
           data: {
             title: entry.title || `플레이리스트 항목 #${index + 1}`,
             artist: entry.uploader || playlistInfo.uploader || '알 수 없는 아티스트',
             fileType: 'MP4',
-            fileSize: ytdlp 
-              ? (await fs.stat(itemOutputPath)).size 
-              : 10 * 1024 * 1024, // 더미 크기
+            fileSize: fileSize,
             duration: entry.duration || 0,
             path: itemOutputPath,
             thumbnailPath: entry.thumbnail || null,
+            sourceUrl: url, // 원본 유튜브 URL 저장
+            groupType: FileGroupType.YOUTUBE_PLAYLIST,
+            groupName: playlistInfo.title,
+            rank: options.rank || null,
           }
         });
         
@@ -1113,4 +1208,5 @@ export async function downloadPlaylistVideo(queueId: string, url: string) {
     
     throw error;
   }
-} 
+}
+
