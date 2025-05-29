@@ -21,6 +21,9 @@ import {
   List,
   ChevronDown,
   ChevronRight,
+  Edit3,
+  Check,
+  X,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -175,6 +178,8 @@ export function FilesManager() {
     maxDownloads: null as number | null
   })
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [editingGroup, setEditingGroup] = useState<string | null>(null)
+  const [editingGroupName, setEditingGroupName] = useState("")
 
   // 데이터 로딩 함수
   const loadFiles = useCallback(async () => {
@@ -428,6 +433,97 @@ export function FilesManager() {
   const playAllFiles = () => {
     if (files.length > 0) {
       loadPlaylist(files, 0)
+    }
+  }
+
+  const playGroupFiles = (groupFiles: FileData[]) => {
+    const audioFiles = groupFiles.filter(file => file.fileType.toLowerCase().includes('mp3'))
+    if (audioFiles.length > 0) {
+      loadPlaylist(audioFiles, 0)
+    }
+  }
+
+  const startEditingGroup = (groupKey: string, currentName: string) => {
+    setEditingGroup(groupKey)
+    setEditingGroupName(currentName)
+  }
+
+  const cancelEditingGroup = () => {
+    setEditingGroup(null)
+    setEditingGroupName("")
+  }
+
+  const saveGroupName = async (groupKey: string, newName: string) => {
+    if (!newName.trim()) {
+      cancelEditingGroup()
+      return
+    }
+
+    try {
+      setProcessingAction(`rename-group-${groupKey}`)
+      const [groupType, oldGroupName] = groupKey.split('_')
+      
+      const response = await fetch('/api/files/rename-group', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          groupType,
+          oldGroupName,
+          newGroupName: newName.trim()
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('그룹명 변경에 실패했습니다.')
+      }
+
+      // 파일 목록 새로고침
+      await loadFiles()
+      cancelEditingGroup()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '그룹명 변경 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  const handleGroupDownload = async (groupFiles: FileData[]) => {
+    if (groupFiles.length === 0) return
+
+    try {
+      setProcessingAction('group-download')
+      const fileIds = groupFiles.map(f => f.id)
+      
+      const response = await fetch('/api/files/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'download',
+          fileIds: fileIds
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('그룹 다운로드에 실패했습니다.')
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'group-files.zip'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '그룹 다운로드 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
     }
   }
 
@@ -839,15 +935,88 @@ export function FilesManager() {
                           />
                           <FolderOpen className="h-5 w-5 text-blue-400" />
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <h3 className="font-semibold text-lg">{getGroupTypeDisplayName(group.groupType)}</h3>
-                          <p className="text-sm text-gray-400">
-                            {group.groupName} • {group.files.length}개 파일 • {formatDate(group.createdAt)}
-                            {selectedInGroup > 0 && ` • ${selectedInGroup}개 선택됨`}
-                          </p>
+                          <div className="flex items-center space-x-2">
+                            {editingGroup === groupKey ? (
+                              <div className="flex items-center space-x-1">
+                                <Input
+                                  value={editingGroupName}
+                                  onChange={(e) => setEditingGroupName(e.target.value)}
+                                  className="h-6 text-sm bg-white/10 border-white/20 text-white"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      saveGroupName(groupKey, editingGroupName)
+                                    } else if (e.key === 'Escape') {
+                                      cancelEditingGroup()
+                                    }
+                                  }}
+                                  autoFocus
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0"
+                                  onClick={() => saveGroupName(groupKey, editingGroupName)}
+                                  disabled={processingAction === `rename-group-${groupKey}`}
+                                >
+                                  <Check className="h-3 w-3 text-green-400" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0"
+                                  onClick={cancelEditingGroup}
+                                >
+                                  <X className="h-3 w-3 text-red-400" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-1">
+                                <span className="text-sm text-gray-400">{group.groupName}</span>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-5 w-5 p-0 opacity-50 hover:opacity-100"
+                                  onClick={() => startEditingGroup(groupKey, group.groupName)}
+                                >
+                                  <Edit3 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                            <span className="text-xs text-gray-500">
+                              • {group.files.length}개 파일 • {formatDate(group.createdAt)}
+                              {selectedInGroup > 0 && ` • ${selectedInGroup}개 선택됨`}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
+                        {/* 그룹 액션 버튼들 */}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-green-400 hover:bg-green-900/20"
+                          onClick={() => playGroupFiles(group.files)}
+                          disabled={group.files.filter(f => f.fileType.toLowerCase().includes('mp3')).length === 0}
+                        >
+                          <Play className="h-4 w-4 mr-1" />
+                          재생
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-blue-400 hover:bg-blue-900/20"
+                          onClick={() => handleGroupDownload(group.files)}
+                          disabled={processingAction === 'group-download'}
+                        >
+                          {processingAction === 'group-download' ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4 mr-1" />
+                          )}
+                          다운로드
+                        </Button>
                         <Badge variant="secondary" className="bg-white/10">
                           {formatFileSize(group.files.reduce((total, file) => total + file.fileSize, 0))}
                         </Badge>
