@@ -980,7 +980,8 @@ export async function downloadPlaylistVideo(queueId: string, url: string) {
     // 각 항목 개별 다운로드
     for (const [index, entry] of entries.entries()) {
       const itemUrl = entry.url || `https://youtube.com/watch?v=${entry.id}`;
-      const itemOutputPath = path.join(playlistFolder, `${index + 1}_${timestamp}.mp4`);
+      const fileName = generateFileName(FileGroupType.YOUTUBE_PLAYLIST, entry.title, 'mp4');
+      const itemOutputPath = path.join(playlistFolder, fileName);
       
       try {
         // 진행률 업데이트
