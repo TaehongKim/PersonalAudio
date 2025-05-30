@@ -1,6 +1,6 @@
 "use client"
 
-import { Home, Search, Music, FileMusic, Share2, Settings, Download } from "lucide-react"
+import { Home, Search, Music, FileMusic, Share2, Settings, Download, ListMusic, Clock } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useTheme } from "@/contexts/ThemeContext"
 
@@ -89,6 +89,40 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
               >
                 <FileMusic size={24} />
                 <span>내 파일</span>
+              </button>
+            </li>
+            <li>
+              <button
+                onClick={() => setActiveTab("playlist")}
+                className={`flex items-center space-x-2 w-full text-left ${
+                  activeTab === "playlist"
+                    ? isDark
+                      ? "text-white"
+                      : "text-black font-medium"
+                    : isDark
+                      ? "text-gray-300 hover:text-white"
+                      : "text-gray-700 hover:text-black"
+                }`}
+              >
+                <ListMusic size={24} />
+                <span>플레이리스트</span>
+              </button>
+            </li>
+            <li>
+              <button
+                onClick={() => setActiveTab("recent")}
+                className={`flex items-center space-x-2 w-full text-left ${
+                  activeTab === "recent"
+                    ? isDark
+                      ? "text-white"
+                      : "text-black font-medium"
+                    : isDark
+                      ? "text-gray-300 hover:text-white"
+                      : "text-gray-700 hover:text-black"
+                }`}
+              >
+                <Clock size={24} />
+                <span>최근 재생</span>
               </button>
             </li>
             <li>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Sidebar } from "../components/Sidebar"
 import { MainContent } from "../components/MainContent"
 import { MelonChart } from "../components/MelonChart"
@@ -12,6 +12,8 @@ import { PlayerControls } from "../components/PlayerControls"
 import { LoginScreen } from "@/components/LoginScreen"
 import { MobileNavigation } from "../components/MobileNavigation"
 import { HomeContent } from "../components/HomeContent"
+import { PlaylistManager } from "../components/PlaylistManager"
+import { RecentPlayed } from "../components/RecentPlayed"
 import { useMediaQuery } from "@/hooks/use-mobile"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { PlayerProvider } from "@/contexts/PlayerContext"
@@ -75,6 +77,8 @@ export default function Home() {
             {activeTab === "youtube" && <MainContent setActiveTab={setActiveTab} />}
             {activeTab === "melon" && <MelonChart />}
             {activeTab === "files" && <FilesManager />}
+            {activeTab === "playlist" && <PlaylistManager />}
+            {activeTab === "recent" && <RecentPlayed />}
             {activeTab === "shares" && <SharesManager />}
             {activeTab === "settings" && (
               <SettingsManager handleLogout={handleLogout} />

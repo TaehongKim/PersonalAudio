@@ -15,6 +15,7 @@ import {
   TrendingUp,
   RefreshCw,
   Video,
+  ListMusic,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -155,6 +156,18 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
       onClick: () => setActiveTab("files"),
     },
     {
+      title: "플레이리스트",
+      icon: ListMusic,
+      color: "bg-indigo-600",
+      onClick: () => setActiveTab("playlist"),
+    },
+    {
+      title: "최근 재생",
+      icon: Clock,
+      color: "bg-orange-600",
+      onClick: () => setActiveTab("recent"),
+    },
+    {
       title: "공유 관리",
       icon: Share2,
       color: "bg-blue-600",
@@ -201,7 +214,7 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
       {/* 빠른 접근 섹션 */}
       <div className="mb-8">
         <h2 className={`text-xl font-semibold mb-4 ${isDark ? "text-white" : "text-gray-800"}`}>빠른 접근</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-4">
           {quickAccessItems.map((item, index) => (
             <Card
               key={index}
