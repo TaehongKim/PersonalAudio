@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useState, useRef, useEffect } from 'react'
+import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react'
 
 interface FileData {
   id: string
@@ -48,6 +48,7 @@ interface PlayerContextType {
   toggleShuffle: () => void
   // 상태
   formatTime: (seconds: number) => string
+  jumpToIndex: (index: number) => void
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined)
@@ -74,6 +75,108 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     ? audioRef 
     : videoRef
 
+  // 재생 기록 저장 함수
+  const recordPlayHistory = useCallback(async (fileId: string, duration?: number, completed: boolean = false) => {
+    try {
+      console.log('재생 기록 저장:', { fileId, duration, completed })
+      await fetch('/api/play-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, duration, completed })
+      });
+      console.log('재생 기록 저장 완료')
+    } catch (error) {
+      console.error('재생 기록 저장 오류:', error);
+    }
+  }, [])
+
+  // 내부 파일 로딩 함수 (가장 먼저 선언)
+  const loadFileInternal = useCallback((file: FileData) => {
+    console.log('파일 로드:', file.title)
+    
+    setState(prev => ({ 
+      ...prev, 
+      currentFile: file,
+      isPlaying: false,
+      currentTime: 0,
+      duration: 0,
+      error: null
+    }))
+
+    // 기존 미디어 정지
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
+    if (videoRef.current) {
+      videoRef.current.pause()
+      videoRef.current.currentTime = 0
+    }
+
+    // 새로운 미디어 소스 설정
+    const media = file.fileType.toLowerCase().includes('mp3') ? audioRef.current : videoRef.current
+    if (media) {
+      media.src = `/api/files/${file.id}/stream`
+      media.load()
+    }
+  }, [])
+
+  // 다음 곡 함수
+  const handleNext = useCallback(() => {
+    setState(prevState => {
+      const currentPlaylist = prevState.playlist
+      const currentIdx = prevState.currentIndex
+      
+      console.log('handleNext 호출:', { 
+        currentIndex: currentIdx, 
+        playlistLength: currentPlaylist.length,
+        shuffle: prevState.shuffle,
+        repeat: prevState.repeat
+      })
+      
+      if (currentPlaylist.length <= 1) {
+        console.log('플레이리스트가 1곡 이하, 다음곡 없음')
+        return prevState
+      }
+
+      let nextIndex = currentIdx + 1
+
+      if (prevState.shuffle) {
+        // 셔플 모드: 랜덤 인덱스
+        const availableIndices = currentPlaylist
+          .map((_, i) => i)
+          .filter(i => i !== currentIdx)
+        if (availableIndices.length > 0) {
+          nextIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)]
+        }
+      } else if (nextIndex >= currentPlaylist.length) {
+        // 일반 모드: 끝에 도달
+        if (prevState.repeat === 'all') {
+          nextIndex = 0
+        } else {
+          console.log('플레이리스트 끝에 도달, 재생 종료')
+          return prevState // 재생 종료
+        }
+      }
+
+      console.log('다음 곡으로 이동:', { from: currentIdx, to: nextIndex })
+      
+      // 다음 파일 로드
+      const nextFile = currentPlaylist[nextIndex]
+      if (nextFile) {
+        // 파일 로드를 별도로 처리
+        setTimeout(() => {
+          loadFileInternal(nextFile)
+        }, 50)
+      }
+      
+      return {
+        ...prevState,
+        currentIndex: nextIndex
+      }
+    })
+  }, [loadFileInternal])
+
   // 미디어 이벤트 핸들러
   useEffect(() => {
     const media = currentMediaRef.current
@@ -96,7 +199,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handlePlay = () => {
-      setState(prev => ({ ...prev, isPlaying: true }))
+      console.log('재생 시작됨')
+      setState(prevState => {
+        // 재생 시작 기록 저장
+        if (prevState.currentFile) {
+          recordPlayHistory(prevState.currentFile.id)
+        }
+        return { ...prevState, isPlaying: true }
+      })
     }
 
     const handlePause = () => {
@@ -104,8 +214,33 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleEnded = () => {
-      setState(prev => ({ ...prev, isPlaying: false }))
-      handleNext()
+      console.log('곡이 끝났습니다. 다음 곡으로 넘어갑니다.')
+      setState(prevState => {
+        // 완료 기록 저장
+        if (prevState.currentFile && prevState.duration) {
+          recordPlayHistory(prevState.currentFile.id, Math.floor(prevState.duration), true)
+        }
+        return { ...prevState, isPlaying: false }
+      })
+      
+      // repeat 모드 확인을 위해 현재 상태 사용
+      setState(currentState => {
+        if (currentState.repeat === 'one') {
+          // 한 곡 반복
+          setTimeout(() => {
+            if (media) {
+              media.currentTime = 0
+              media.play()
+            }
+          }, 100)
+        } else {
+          // 다음 곡으로 넘어가기
+          setTimeout(() => {
+            handleNext()
+          }, 100)
+        }
+        return currentState
+      })
     }
 
     const handleError = () => {
@@ -140,7 +275,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       media.removeEventListener('error', handleError)
       media.removeEventListener('volumechange', handleVolumeChange)
     }
-  }, [currentMediaRef, state.currentFile])
+  }, [currentMediaRef, state.currentFile, handleNext, recordPlayHistory])
 
   // 기본 컨트롤 함수들
   const play = () => {
@@ -185,7 +320,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }
 
   // 파일 로딩
-  const loadFile = (file: FileData) => {
+  const loadFile = useCallback((file: FileData) => {
+    console.log('외부 loadFile 호출:', file.title)
     setState(prev => ({ 
       ...prev, 
       currentFile: file,
@@ -213,10 +349,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       media.src = `/api/files/${file.id}/stream`
       media.load()
     }
-  }
+  }, [])
 
   // 플레이리스트 로딩
-  const loadPlaylist = (files: FileData[], startIndex = 0) => {
+  const loadPlaylist = useCallback((files: FileData[], startIndex = 0) => {
+    console.log('플레이리스트 로드:', { fileCount: files.length, startIndex })
     if (files.length === 0) return
 
     const validIndex = Math.max(0, Math.min(startIndex, files.length - 1))
@@ -226,56 +363,56 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       currentIndex: validIndex
     }))
 
-    loadFile(files[validIndex])
-  }
-
-  // 다음 곡
-  const handleNext = () => {
-    let nextIndex = state.currentIndex + 1
-    let targetPlaylist = state.playlist
-
-    if (targetPlaylist.length <= 1) return
-
-    if (state.shuffle) {
-      // 셔플 모드: 랜덤 인덱스
-      const availableIndices = targetPlaylist
-        .map((_, i) => i)
-        .filter(i => i !== state.currentIndex)
-      nextIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)]
-    } else if (nextIndex >= targetPlaylist.length) {
-      // 일반 모드: 끝에 도달
-      if (state.repeat === 'all') {
-        nextIndex = 0
-      } else {
-        return // 재생 종료
-      }
-    }
-
-    setState(prev => ({ ...prev, currentIndex: nextIndex }))
-    loadFile(targetPlaylist[nextIndex])
-  }
+    loadFileInternal(files[validIndex])
+  }, [loadFileInternal])
 
   // 이전 곡
-  const previous = () => {
-    if (state.playlist.length <= 1) return
+  const previous = useCallback(() => {
+    setState(prevState => {
+      const currentPlaylist = prevState.playlist
+      const currentIdx = prevState.currentIndex
+      
+      console.log('previous 호출:', { 
+        currentIndex: currentIdx, 
+        playlistLength: currentPlaylist.length 
+      })
 
-    let prevIndex = state.currentIndex - 1
-
-    if (prevIndex < 0) {
-      if (state.repeat === 'all') {
-        prevIndex = state.playlist.length - 1
-      } else {
-        prevIndex = 0
+      if (currentPlaylist.length <= 1) {
+        console.log('플레이리스트가 1곡 이하, 이전곡 없음')
+        return prevState
       }
-    }
 
-    setState(prev => ({ ...prev, currentIndex: prevIndex }))
-    loadFile(state.playlist[prevIndex])
-  }
+      let prevIndex = currentIdx - 1
 
-  const next = () => {
+      if (prevIndex < 0) {
+        if (prevState.repeat === 'all') {
+          prevIndex = currentPlaylist.length - 1
+        } else {
+          prevIndex = 0
+        }
+      }
+
+      console.log('이전 곡으로 이동:', { from: currentIdx, to: prevIndex })
+      
+      // 이전 파일 로드
+      const prevFile = currentPlaylist[prevIndex]
+      if (prevFile) {
+        // 파일 로드를 별도로 처리
+        setTimeout(() => {
+          loadFileInternal(prevFile)
+        }, 50)
+      }
+
+      return {
+        ...prevState,
+        currentIndex: prevIndex
+      }
+    })
+  }, [loadFileInternal])
+
+  const next = useCallback(() => {
     handleNext()
-  }
+  }, [handleNext])
 
   // 반복 모드 토글
   const toggleRepeat = () => {
@@ -289,6 +426,33 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const toggleShuffle = () => {
     setState(prev => ({ ...prev, shuffle: !prev.shuffle }))
   }
+
+  // 특정 인덱스로 점프
+  const jumpToIndex = useCallback((index: number) => {
+    if (index < 0 || index >= state.playlist.length) {
+      console.log('잘못된 인덱스:', index)
+      return
+    }
+
+    console.log('플레이리스트 인덱스로 이동:', { from: state.currentIndex, to: index })
+    
+    setState(prev => ({ ...prev, currentIndex: index }))
+    
+    const targetFile = state.playlist[index]
+    if (targetFile) {
+      loadFileInternal(targetFile)
+      
+      // 잠시 후 자동 재생
+      setTimeout(() => {
+        const media = targetFile.fileType.toLowerCase().includes('mp3') ? audioRef.current : videoRef.current
+        if (media) {
+          media.play().catch((error) => {
+            console.error('자동 재생 실패:', error)
+          })
+        }
+      }, 200)
+    }
+  }, [state.playlist, state.currentIndex, loadFileInternal, audioRef, videoRef])
 
   // 시간 포맷팅
   const formatTime = (seconds: number): string => {
@@ -313,6 +477,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     toggleRepeat,
     toggleShuffle,
     formatTime,
+    jumpToIndex,
   }
 
   return (

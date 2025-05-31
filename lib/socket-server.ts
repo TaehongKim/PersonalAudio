@@ -10,6 +10,7 @@ interface DownloadStatusData {
   progress: number;
   data?: Record<string, unknown>;
   timestamp: string;
+  fileId?: string;
 }
 
 interface DownloadCompleteData {
@@ -55,6 +56,8 @@ export function initSocketServer(httpServer: HttpServer) {
     return io;
   }
 
+  console.log('🚀 Socket.IO 서버 초기화 시작...');
+
   io = new Server(httpServer, {
     path: '/api/socket',
     cors: {
@@ -65,33 +68,60 @@ export function initSocketServer(httpServer: HttpServer) {
       credentials: true
     },
     transports: ['websocket', 'polling'],
-    allowEIO3: true
+    allowEIO3: true,
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    connectTimeout: 45000,
+    maxHttpBufferSize: 1e6,
+    allowUpgrades: true
   });
   globalThis.io = io;
 
   // 연결 이벤트 핸들러
   io.on('connection', (socket: Socket) => {
-    console.log(`[Socket] 클라이언트 연결됨: ${socket.id}`);
+    console.log(`✅ [Socket] 클라이언트 연결됨: ${socket.id}`);
 
-    // 다운로드 ID 구독
+    // 다운로드 ID 구독 (기존 subscribe)
     socket.on('subscribe', (downloadId: string) => {
-      console.log(`[Socket] 클라이언트 ${socket.id}가 다운로드 ID ${downloadId}를 구독합니다.`);
+      console.log(`📡 [Socket] 클라이언트 ${socket.id}가 다운로드 ID ${downloadId}를 구독합니다.`);
       socket.join(downloadId);
+    });
+
+    // join 이벤트도 처리 (호환성)
+    socket.on('join', (room: string) => {
+      console.log(`🔗 [Socket] 클라이언트 ${socket.id}가 방 ${room}에 참가합니다.`);
+      socket.join(room);
+    });
+
+    // leave 이벤트 처리
+    socket.on('leave', (room: string) => {
+      console.log(`👋 [Socket] 클라이언트 ${socket.id}가 방 ${room}에서 나갑니다.`);
+      socket.leave(room);
     });
 
     // 구독 취소
     socket.on('unsubscribe', (downloadId: string) => {
-      console.log(`[Socket] 클라이언트 ${socket.id}가 다운로드 ID ${downloadId} 구독을 취소합니다.`);
+      console.log(`❌ [Socket] 클라이언트 ${socket.id}가 다운로드 ID ${downloadId} 구독을 취소합니다.`);
       socket.leave(downloadId);
+    });
+
+    // 연결 오류 처리
+    socket.on('error', (error: Error) => {
+      console.error(`🔥 [Socket] 클라이언트 ${socket.id} 오류:`, error.message);
     });
 
     // 연결 종료
     socket.on('disconnect', (reason: string) => {
-      console.log(`[Socket] 클라이언트 연결 종료: ${socket.id}, 이유: ${reason}`);
+      console.log(`💔 [Socket] 클라이언트 연결 종료: ${socket.id}, 이유: ${reason}`);
     });
   });
 
-  console.log('[Socket] Socket.io 서버 초기화 완료');
+  // 서버 레벨 오류 처리
+  (io as any).engine.on('connection_error', (err: any) => {
+    console.error('⚠️ [Socket] 연결 오류:', err.req, err.code, err.message, err.context);
+  });
+
+  console.log('✅ [Socket] Socket.io 서버 초기화 완료');
   return io;
 }
 
@@ -228,4 +258,4 @@ export function emitPlaylistItemComplete(
   console.log(`[Socket] 플레이리스트 항목 완료: ${downloadId}, 항목 ${itemIndex+1}/${totalItems}`);
 }
 
-export default io; 
+export default io;

@@ -64,15 +64,22 @@ export async function GET() {
 
     // 설정에서 저장소 제한 가져오기
     const settings = await prisma.settings.findFirst();
-    const storageLimit = settings?.storageLimit || 1000; // 기본값: 1GB (MB 단위)
+    const storageLimitMB = settings?.storageLimit || 1000; // 기본값: 1000MB
+    const storageLimitBytes = storageLimitMB * 1024 * 1024; // MB를 바이트로 변환
+
+    // 현재 사용량 (바이트)
+    const currentUsageBytes = totalStorageUsed._sum.fileSize || 0;
+    
+    // 사용량 퍼센트 계산
+    const usagePercentage = storageLimitBytes > 0 
+      ? (currentUsageBytes / storageLimitBytes) * 100 
+      : 0;
 
     return NextResponse.json({
       totalFiles,
-      totalStorageUsed: totalStorageUsed._sum.fileSize || 0,
-      storageLimit: storageLimit * 1024 * 1024, // MB를 Bytes로 변환
-      storageUsagePercentage: totalStorageUsed._sum.fileSize 
-        ? (totalStorageUsed._sum.fileSize / (storageLimit * 1024 * 1024)) * 100 
-        : 0,
+      totalStorageUsed: currentUsageBytes,
+      storageLimit: storageLimitBytes,
+      storageUsagePercentage: usagePercentage,
       fileTypeStats: fileTypeStats.map((stat: { fileType: string; _count: { id: number }; _sum: { fileSize: number | null } }) => ({
         fileType: stat.fileType,
         count: stat._count.id,

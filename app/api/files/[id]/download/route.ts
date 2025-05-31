@@ -21,6 +21,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     // 파일 존재 여부 확인
     if (!fs.existsSync(file.path)) {
+      console.error(`파일 없음 (다운로드 시도): ${file.path}`);
       return NextResponse.json(
         { error: '파일이 서버에서 찾을 수 없습니다.' },
         { status: 404 }
@@ -35,11 +36,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }
     });
 
-    // 파일 스트림 생성
-    const fileBuffer = fs.readFileSync(file.path);
+    const stats = fs.statSync(file.path);
     const fileName = `${file.title} - ${file.artist || 'Unknown Artist'}.${file.fileType.toLowerCase()}`;
-    
-    // 안전한 파일명 생성 (특수문자 제거)
     const safeFileName = fileName.replace(/[<>:"/\\|?*]/g, '_');
 
     // Content-Type 설정
@@ -64,16 +62,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         break;
     }
 
+    // 파일 스트림 생성
+    const fileStream = fs.createReadStream(file.path);
+
     // 응답 헤더 설정
     const headers = {
       'Content-Type': contentType,
-      'Content-Length': fileBuffer.length.toString(),
+      'Content-Length': stats.size.toString(),
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(safeFileName)}`,
       'Cache-Control': 'public, max-age=3600',
-      'Accept-Ranges': 'bytes',
     };
 
-    return new NextResponse(fileBuffer, {
+    return new NextResponse(fileStream as unknown as ReadableStream, {
       status: 200,
       headers
     });

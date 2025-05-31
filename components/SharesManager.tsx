@@ -88,7 +88,7 @@ export function SharesManager() {
 
     try {
       setProcessingAction(`delete-${shareId}`)
-      const response = await fetch(`/api/shares/[id]?id=${shareId}`, {
+      const response = await fetch(`/api/shares/${shareId}`, {
         method: 'DELETE'
       })
 
@@ -110,7 +110,7 @@ export function SharesManager() {
 
     try {
       setProcessingAction(`update-${selectedShareId}`)
-      const response = await fetch(`/api/shares/[id]?id=${selectedShareId}`, {
+      const response = await fetch(`/api/shares/${selectedShareId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'

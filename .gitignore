@@ -39,3 +39,29 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# PersonalAudio specific
+# Storage directory (user uploads, cache, temporary files)
+/storage/
+!/storage/.gitkeep
+
+# Database files (development)
+/prisma/dev.db
+/prisma/dev.db-journal
+
+# Logs
+/logs/
+*.log
+
+# PM2 files
+ecosystem.config.js
+deploy.sh
+update-binaries.sh
+
+# Cache directories
+.cache/
+/cache/
+
+# Temporary files
+/tmp/
+/temp/

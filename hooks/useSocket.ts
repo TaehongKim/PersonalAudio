@@ -50,58 +50,59 @@ interface PlaylistItemCompleteData {
  */
 export function useSocket() {
   const [isConnected, setIsConnected] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<Error | null>(null)
   const socketRef = useRef<Socket | null>(null)
   const subscribedRoomsRef = useRef<Set<string>>(new Set())
 
   // 소켓 초기화
   useEffect(() => {
-    try {
-      const socket = getSocket()
-      socketRef.current = socket
-      
-      // 연결 상태 동기화
-      setIsConnected(socket.connected)
+    if (!socketRef.current) {
+      try {
+        const socket = getSocket()
+        socketRef.current = socket
 
-      // 이벤트 리스너 등록
-      const handleConnect = () => {
-        setIsConnected(true)
-        setError(null)
-        console.log('useSocket: 연결됨')
+        socket.on('connect', () => {
+          console.log('✅ 소켓 연결됨')
+          setIsConnected(true)
+          setError(null)
+        })
+
+        socket.on('disconnect', (reason: string) => {
+          console.log('❌ 소켓 연결 끊김:', reason)
+          setIsConnected(false)
+        })
+
+        socket.on('connect_error', (err: Error) => {
+          console.error('🔥 소켓 연결 오류:', err)
+          setError(err)
+          setIsConnected(false)
+        })
+      } catch (err) {
+        console.error('소켓 초기화 오류:', err)
+        setError(err instanceof Error ? err : new Error('소켓 초기화 실패'))
       }
+    }
 
-      const handleDisconnect = () => {
-        setIsConnected(false)
-        console.log('useSocket: 연결 해제됨')
+    return () => {
+      if (socketRef.current) {
+        destroySocket()
+        socketRef.current = null
       }
-
-      const handleConnectError = (err: Error) => {
-        setError(err.message)
-        console.error('useSocket: 연결 오류:', err)
-      }
-
-      socket.on('connect', handleConnect)
-      socket.on('disconnect', handleDisconnect)
-      socket.on('connect_error', handleConnectError)
-
-      // 정리 함수
-      return () => {
-        socket.off('connect', handleConnect)
-        socket.off('disconnect', handleDisconnect)
-        socket.off('connect_error', handleConnectError)
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '소켓 초기화 실패')
     }
   }, [])
 
   // 이벤트 리스너 등록
   const on = useCallback((event: string, callback: (...args: any[]) => void) => {
     const socket = socketRef.current
-    if (!socket) return () => {}
+    if (!socket) {
+      console.warn('소켓이 연결되지 않았습니다.')
+      return () => {}
+    }
 
     socket.on(event, callback)
-    return () => socket.off(event, callback)
+    return () => {
+      socket.off(event, callback)
+    }
   }, [])
 
   // 이벤트 발송
@@ -120,12 +121,10 @@ export function useSocket() {
     const socket = socketRef.current
     if (!socket || !downloadId) return
 
-    const room = `download:${downloadId}`
-    if (!subscribedRoomsRef.current.has(room)) {
-      socket.emit('join', room)
-      subscribedRoomsRef.current.add(room)
-      console.log('다운로드 구독:', room)
-    }
+    // 기본 구독 방식과 join 방식 모두 시도
+    socket.emit('subscribe', downloadId)
+    socket.emit('join', downloadId)
+    console.log('📡 다운로드 구독:', downloadId)
   }, [])
 
   // 다운로드 상태 구독 해제
@@ -133,12 +132,9 @@ export function useSocket() {
     const socket = socketRef.current
     if (!socket || !downloadId) return
 
-    const room = `download:${downloadId}`
-    if (subscribedRoomsRef.current.has(room)) {
-      socket.emit('leave', room)
-      subscribedRoomsRef.current.delete(room)
-      console.log('다운로드 구독 해제:', room)
-    }
+    socket.emit('unsubscribe', downloadId)
+    socket.emit('leave', downloadId)
+    console.log('❌ 다운로드 구독 해제:', downloadId)
   }, [])
 
   return {

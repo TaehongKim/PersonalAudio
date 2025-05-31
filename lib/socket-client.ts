@@ -16,8 +16,13 @@ export function getSocket(): Socket {
       socketInstance.disconnect();
     }
 
+    // 개발 환경과 프로덕션 환경에 맞는 URL 설정
+    const serverUrl = process.env.NODE_ENV === 'production' 
+      ? window.location.origin
+      : 'http://localhost:3000';
+
     // 새로운 소켓 인스턴스 생성
-    socketInstance = io(process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3000', {
+    socketInstance = io(serverUrl, {
       path: '/api/socket',
       transports: ['websocket', 'polling'],
       upgrade: true,
@@ -25,7 +30,7 @@ export function getSocket(): Socket {
       timeout: 20000,
       forceNew: false, // 기존 연결 재사용
       reconnection: true,
-      reconnectionAttempts: 3,
+      reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       autoConnect: true,
@@ -34,15 +39,33 @@ export function getSocket(): Socket {
 
     // 연결 상태 로깅
     socketInstance.on('connect', () => {
-      console.log('소켓 연결됨:', socketInstance?.id);
+      console.log('✅ Socket.IO 연결 성공:', socketInstance?.id);
     });
 
     socketInstance.on('disconnect', (reason: string) => {
-      console.log('소켓 연결 해제:', reason);
+      console.log('❌ Socket.IO 연결 해제:', reason);
     });
 
     socketInstance.on('connect_error', (error: Error) => {
-      console.error('소켓 연결 오류:', error);
+      console.error('🔥 Socket.IO 연결 오류:', error.message);
+      // Polling으로 fallback 시도
+      if (socketInstance && error.message.includes('websocket')) {
+        console.log('📡 WebSocket 실패, polling으로 재시도...');
+        // 타입 에러 방지를 위해 any로 캐스팅
+        (socketInstance as any).io.opts.transports = ['polling'];
+      }
+    });
+
+    socketInstance.on('reconnect', (attemptNumber: number) => {
+      console.log('🔄 Socket.IO 재연결 성공:', attemptNumber);
+    });
+
+    socketInstance.on('reconnect_attempt', (attemptNumber: number) => {
+      console.log('⏳ Socket.IO 재연결 시도:', attemptNumber);
+    });
+
+    socketInstance.on('reconnect_failed', () => {
+      console.error('💀 Socket.IO 재연결 실패');
     });
   }
 
@@ -55,6 +78,7 @@ export function getSocket(): Socket {
  */
 export function destroySocket(): void {
   if (socketInstance) {
+    console.log('🧹 Socket.IO 연결 정리');
     socketInstance.disconnect();
     socketInstance = null;
   }

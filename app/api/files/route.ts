@@ -6,14 +6,10 @@ import { Prisma } from '@prisma/client';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
     const fileType = searchParams.get('fileType') || '';
-
-    const skip = (page - 1) * limit;
 
     // WHERE 조건 구성
     const where: Prisma.FileWhereInput = {};
@@ -57,31 +53,50 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 파일 목록 조회
-    const [files, totalCount] = await Promise.all([
-      prisma.file.findMany({
-        where,
-        orderBy,
-        skip,
-        take: limit,
-        select: {
-          id: true,
-          title: true,
-          artist: true,
-          fileType: true,
-          fileSize: true,
-          duration: true,
-          thumbnailPath: true,
-          sourceUrl: true,
-          groupType: true,
-          groupName: true,
-          rank: true,
-          createdAt: true,
-          downloads: true,
-        }
-      }),
-      prisma.file.count({ where })
-    ]);
+    // 1. 모든 파일 목록 조회 (페이지네이션 제거)
+    const files = await prisma.file.findMany({
+      where,
+      orderBy,
+      select: {
+        id: true,
+        title: true,
+        artist: true,
+        fileType: true,
+        fileSize: true,
+        duration: true,
+        thumbnailPath: true,
+        sourceUrl: true,
+        groupType: true,
+        groupName: true,
+        rank: true,
+        createdAt: true,
+        downloads: true,
+      }
+    });
+
+    // 3. 각 그룹의 전체 파일 수 조회
+    const groupCounts = await prisma.file.groupBy({
+      by: ['groupType', 'groupName'],
+      _count: {
+        id: true,
+      },
+      where, 
+    });
+    
+    const groupCountMap = new Map<string, number>();
+    groupCounts.forEach(group => {
+      const groupKey = `${group.groupType || 'unknown'}_${group.groupName || 'unknown'}`;
+      groupCountMap.set(groupKey, group._count.id);
+    });
+
+    // 4. 파일 목록에 그룹별 전체 파일 수 추가
+    const filesWithGroupCount = files.map(file => {
+      const groupKey = `${file.groupType || 'unknown'}_${file.groupName || 'unknown'}`;
+      return {
+        ...file,
+        groupTotalCount: groupCountMap.get(groupKey) || 0,
+      };
+    });
 
     // 총 저장 공간 사용량 계산
     const totalStorageUsed = await prisma.file.aggregate({
@@ -91,15 +106,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      files,
-      pagination: {
-        page,
-        limit,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNext: page * limit < totalCount,
-        hasPrev: page > 1
-      },
+      files: filesWithGroupCount,
       totalStorageUsed: totalStorageUsed._sum.fileSize || 0
     });
 

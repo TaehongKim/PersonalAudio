@@ -1,6 +1,7 @@
 import { startBackgroundWorker } from './worker';
 import { initializeAdmin } from './init-admin';
 import { ensureBinaries } from './utils/binary-installer';
+import { startFileWatcher } from './file-watcher';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -34,6 +35,9 @@ export async function initializeServer() {
     
     // 백그라운드 작업 처리기 시작
     startBackgroundWorker();
+
+    // 파일 시스템 감시 시작
+    startFileWatcher();
 
     console.log('서버 초기화 완료');
   } catch (error) {

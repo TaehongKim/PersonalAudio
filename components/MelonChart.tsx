@@ -1,38 +1,17 @@
 "use client"
 
 import type React from "react"
-
-import { useState, useEffect, useCallback } from "react"
-import { Download, Filter, X, Music, Clock, RefreshCw } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Filter, X, Music, Clock, RefreshCw, Download } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useSocket } from "@/hooks/useSocket"
 import { useSession } from "@/hooks/useSession"
-
-interface ChartSong {
-  rank: number
-  title: string
-  artist: string
-  album?: string
-  duration?: string
-  coverUrl?: string
-}
-
-interface DownloadTask {
-  jobId: string
-  title: string
-  artist: string
-  progress: number
-  status: 'queued' | 'processing' | 'completed' | 'failed'
-  error?: string
-  coverUrl?: string
-}
+import { toast } from 'react-toastify'
+import type { ChartSong } from '@/types/chart'
 
 export function MelonChart() {
   const [chartSize, setChartSize] = useState("30")
@@ -41,23 +20,48 @@ export function MelonChart() {
   const [keywordInput, setKeywordInput] = useState("")
   const [showCustomInput, setShowCustomInput] = useState(false)
   const [chartSongs, setChartSongs] = useState<ChartSong[]>([])
-  const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([])
   const [loading, setLoading] = useState(false)
-  const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const intervalRef = useRef<NodeJS.Timeout | undefined>(undefined)
+  const lastUpdateRef = useRef<string>("")
+  const [filteredSongs, setFilteredSongs] = useState<ChartSong[]>([])
   
-  const socket = useSocket()
   const { isLoggedIn, isLoading: sessionLoading } = useSession()
+  
+  // 필터링 로직 분리
+  const applyFiltering = useCallback((songs: ChartSong[], filterKeywords: string[] = keywords) => {
+    let filtered = songs
+    if (filterKeywords.length > 0) {
+      filtered = songs.filter((song) => {
+        const searchText = `${song.title} ${song.artist}`.toLowerCase()
+        return !filterKeywords.some(keyword => searchText.includes(keyword.toLowerCase()))
+      })
+    }
+    setFilteredSongs(filtered)
+    
+    if (filtered.length === 0 && filterKeywords.length > 0) {
+      setError('필터링 조건에 맞는 곡이 없습니다. 다른 키워드를 시도해보세요.')
+    } else if (filtered.length > 0) {
+      setError(null)
+    }
+  }, [keywords])
 
   const handleAddKeyword = () => {
     if (keywordInput.trim() !== "" && !keywords.includes(keywordInput.trim())) {
-      setKeywords([...keywords, keywordInput.trim()])
+      const newKeywords = [...keywords, keywordInput.trim()]
+      setKeywords(newKeywords)
       setKeywordInput("")
+      // 키워드 추가 시 즉시 필터링 적용
+      applyFiltering(chartSongs, newKeywords)
     }
   }
 
   const handleRemoveKeyword = (keyword: string) => {
-    setKeywords(keywords.filter((k) => k !== keyword))
+    const newKeywords = keywords.filter((k) => k !== keyword)
+    setKeywords(newKeywords)
+    // 키워드 제거 시 즉시 필터링 적용
+    applyFiltering(chartSongs, newKeywords)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -70,22 +74,47 @@ export function MelonChart() {
   const handleChartSizeChange = (value: string) => {
     setChartSize(value)
     setShowCustomInput(value === "custom")
+    if (value !== "custom") {
+      // 상태 업데이트와 동시에 새로운 값으로 차트 가져오기
+      fetchChart(true, value, customChartSize)
+    }
   }
   
-  const fetchChart = useCallback(async () => {
+  const handleCustomSizeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setCustomChartSize(value)
+    if (value && parseInt(value) > 0 && parseInt(value) <= 100) {
+      // 상태 업데이트와 동시에 새로운 값으로 차트 가져오기
+      fetchChart(true, chartSize, value)
+    }
+  }
+
+  const fetchChart = useCallback(async (force = false, overrideSize?: string, overrideCustomSize?: string) => {
     if (!isLoggedIn) {
       setError('로그인이 필요합니다.')
       return
     }
     
+    // 강제 새로고침이 아닌 경우 오늘 날짜 확인
+    if (!force) {
+      const today = new Date().toISOString().split('T')[0]
+      if (lastUpdateRef.current === today) {
+        return // 이미 오늘 업데이트했으면 스킵
+      }
+    }
+    
     setLoading(true)
     setError(null)
     try {
-      const size = chartSize === 'custom' ? parseInt(customChartSize) || 30 : parseInt(chartSize)
-      const excludeParam = keywords.length > 0 ? `&exclude=${keywords.join(',')}` : ''
+      // 오버라이드 값이 있으면 사용, 없으면 현재 상태 사용
+      const currentChartSize = overrideSize || chartSize
+      const currentCustomSize = overrideCustomSize || customChartSize
+      const size = currentChartSize === 'custom' ? parseInt(currentCustomSize) || 30 : parseInt(currentChartSize)
       
-      const response = await fetch(`/api/chart?size=${size}${excludeParam}`, {
-        credentials: 'include', // 쿠키 포함
+      console.log(`차트 사이즈: ${currentChartSize}, 커스텀: ${currentCustomSize}, 최종: ${size}`)
+      
+      const response = await fetch(`/api/chart?size=${size}`, {
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         }
@@ -94,6 +123,7 @@ export function MelonChart() {
       if (response.status === 401) {
         setError('세션이 만료되었습니다. 페이지를 새로고침해주세요.')
         setChartSongs([])
+        setFilteredSongs([])
         return
       }
       
@@ -103,129 +133,88 @@ export function MelonChart() {
       
       const data = await response.json()
       const chart = data.chart || []
+      
       setChartSongs(chart)
+      applyFiltering(chart)
+      
+      if (!force) {
+        const today = new Date().toISOString().split('T')[0]
+        lastUpdateRef.current = today // 업데이트 날짜 기록
+      }
       
       if (chart.length === 0) {
-        setError('조건에 맞는 차트 데이터가 없습니다.')
+        setError('차트 데이터를 가져오는 중입니다. 잠시 후 다시 시도해주세요.')
       }
     } catch (error) {
       console.error('Failed to fetch chart:', error)
       setError(error instanceof Error ? error.message : '차트를 불러오는데 실패했습니다.')
       setChartSongs([])
+      setFilteredSongs([])
     } finally {
       setLoading(false)
     }
-  }, [chartSize, customChartSize, keywords, isLoggedIn])
-  
-  const downloadAllSongs = async () => {
-    if (chartSongs.length === 0) return
-    
-    setDownloading(true)
-    setError(null)
+  }, [applyFiltering, isLoggedIn])
+
+  // 다음 자정까지의 시간(밀리초) 계산
+  const getTimeUntilMidnight = useCallback(() => {
+    const now = new Date()
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    return tomorrow.getTime() - now.getTime()
+  }, [])
+
+  // 자정에 실행될 업데이트 예약
+  const scheduleNextUpdate = useCallback(() => {
+    if (intervalRef.current) {
+      clearTimeout(intervalRef.current)
+    }
+    intervalRef.current = setTimeout(() => {
+      fetchChart()
+      scheduleNextUpdate() // 다음 자정 업데이트 예약
+    }, getTimeUntilMidnight())
+  }, [fetchChart, getTimeUntilMidnight])
+
+  useEffect(() => {
+    if (!sessionLoading && isLoggedIn) {
+      fetchChart() // 초기 로드
+      scheduleNextUpdate() // 다음 자정 업데이트 예약
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearTimeout(intervalRef.current)
+      }
+    }
+  }, [fetchChart, scheduleNextUpdate, sessionLoading, isLoggedIn])
+
+  const downloadSelectedSongs = async () => {
     try {
+      setDownloading(true)
+      
       const response = await fetch('/api/chart', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json'
+        headers: {
+          'Content-Type': 'application/json',
         },
-        credentials: 'include',
         body: JSON.stringify({
-          songs: chartSongs,
-          excludeKeywords: keywords,
-          size: chartSize === 'custom' ? parseInt(customChartSize) || 30 : parseInt(chartSize)
+          songs: filteredSongs
         })
       })
-      
-      if (response.status === 401) {
-        throw new Error('다운로드 기능을 사용하려면 먼저 로그인해주세요.')
-      }
-      
+
       if (!response.ok) {
-        throw new Error(`다운로드 시작 실패: ${response.status}`)
+        const error = await response.json()
+        throw new Error(error.message || '다운로드 요청 실패')
       }
+
+      const result = await response.json()
+      toast.success(result.message)
       
-      const data = await response.json()
-      const newTasks = data.results.map((result: any) => ({
-        jobId: result.queueId || `${result.rank}-${Date.now()}`,
-        title: `${result.artist} - ${result.title}`,
-        artist: result.artist as string,
-        progress: 0,
-        status: result.status as DownloadTask['status'],
-        error: result.error as string | undefined,
-        coverUrl: chartSongs.find(s => s.rank === result.rank)?.coverUrl
-      }))
-      
-      setDownloadTasks(prev => [...prev, ...newTasks])
-      
-      if (data.results.some((r: any) => r.status === 'failed')) {
-        setError('일부 다운로드 시작에 실패했습니다.')
-      }
     } catch (error) {
-      console.error('Failed to start downloads:', error)
-      setError(error instanceof Error ? error.message : '다운로드를 시작할 수 없습니다.')
+      console.error('다운로드 오류:', error)
+      toast.error(error instanceof Error ? error.message : '다운로드 중 오류가 발생했습니다.')
     } finally {
       setDownloading(false)
     }
   }
-  
-  const downloadSingleSong = async (song: ChartSong) => {
-    try {
-      const response = await fetch('/api/chart', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({ songs: [song] })
-      })
-      
-      if (response.status === 401) {
-        setError('다운로드 기능을 사용하려면 먼저 로그인해주세요.')
-        return
-      }
-      
-      if (!response.ok) throw new Error('Failed to start download')
-      
-      const data = await response.json()
-      const newTask = {
-        jobId: data.results[0]?.queueId || `${song.rank}-${Date.now()}`,
-        title: `${song.artist} - ${song.title}`,
-        artist: song.artist,
-        progress: 0,
-        status: data.results[0]?.status || 'queued' as const,
-        error: data.results[0]?.error,
-        coverUrl: song.coverUrl
-      }
-      
-      setDownloadTasks(prev => [...prev, newTask])
-    } catch (error) {
-      console.error('Failed to start download:', error)
-    }
-  }
-  
-  useEffect(() => {
-    if (!sessionLoading && isLoggedIn) {
-      fetchChart()
-    }
-  }, [fetchChart, sessionLoading, isLoggedIn])
-
-  // Socket.IO 이벤트 리스너
-  useEffect(() => {
-    if (!socket.isConnected) return
-
-    const handleDownloadStatus = (data: any) => {
-      setDownloadTasks(prev => 
-        prev.map(task => 
-          task.jobId === data.id 
-            ? { ...task, progress: data.progress, status: data.status }
-            : task
-        )
-      )
-    }
-
-    const cleanup = socket.on('download:status', handleDownloadStatus)
-    return cleanup
-  }, [socket])
 
   if (sessionLoading) {
     return (
@@ -252,8 +241,37 @@ export function MelonChart() {
 
   return (
     <div className="flex-1 bg-gradient-to-b from-green-900 to-black text-white p-4 md:p-8 overflow-y-auto">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold">멜론 차트</h1>
+          {chartSongs.length > 0 && (
+            <p className="text-gray-400 text-sm mt-1">
+              {keywords.length > 0 ? (
+                <>
+                  전체 {chartSongs.length}곡 중 {filteredSongs.length}곡 표시
+                  {filteredSongs.length !== chartSongs.length && (
+                    <span className="text-yellow-400 ml-2">
+                      ({chartSongs.length - filteredSongs.length}곡 필터링됨)
+                    </span>
+                  )}
+                </>
+              ) : (
+                `총 ${chartSongs.length}곡`
+              )}
+            </p>
+          )}
+        </div>
+        <Button
+          onClick={downloadSelectedSongs}
+          disabled={downloading || loading || filteredSongs.length === 0}
+          className="flex items-center gap-2"
+        >
+          <Download className="w-4 h-4" />
+          {downloading ? '다운로드 중...' : `전체 다운로드 (${filteredSongs.length}곡)`}
+        </Button>
+      </div>
+
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-6">멜론 차트</h1>
         <Card className="bg-white/10 border-none">
           <CardContent className="p-6">
             <div className="space-y-6">
@@ -284,7 +302,7 @@ export function MelonChart() {
                       type="number"
                       placeholder="숫자 입력 (1-100)"
                       value={customChartSize}
-                      onChange={(e) => setCustomChartSize(e.target.value)}
+                      onChange={handleCustomSizeChange}
                       className="w-32 bg-white/10 border-white/20 text-white placeholder-gray-400"
                       min="1"
                       max="100"
@@ -327,22 +345,14 @@ export function MelonChart() {
 
               <div className="flex gap-2">
                 <Button 
-                  className="flex-1 bg-green-600 hover:bg-green-700"
-                  onClick={downloadAllSongs}
-                  disabled={downloading || chartSongs.length === 0 || !isLoggedIn}
-                  title={!isLoggedIn ? "로그인 후 이용 가능합니다" : ""}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  {!isLoggedIn ? '로그인 필요' : downloading ? '다운로드 중...' : '차트 전체 다운로드'}
-                </Button>
-                <Button 
                   variant="outline"
                   className="border-white/20 text-white hover:bg-white/10"
-                  onClick={fetchChart}
+                  onClick={() => fetchChart(true, chartSize, customChartSize)}
                   disabled={loading || !isLoggedIn}
                   title={!isLoggedIn ? "로그인 후 이용 가능합니다" : "새로고침"}
                 >
                   <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  새로고침
                 </Button>
               </div>
             </div>
@@ -356,15 +366,7 @@ export function MelonChart() {
         </div>
       )}
 
-      <Tabs defaultValue="preview">
-        <TabsList className="bg-white/10 border-white/20">
-          <TabsTrigger value="preview">차트 미리보기</TabsTrigger>
-          <TabsTrigger value="downloads">
-            다운로드 진행중 ({downloadTasks.filter((t) => t.status === "processing" || t.status === "queued").length})
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="preview" className="mt-4">
+      <div className="mt-4">
           {loading ? (
             <div className="flex justify-center items-center h-64">
               <RefreshCw className="w-8 h-8 animate-spin" />
@@ -372,7 +374,7 @@ export function MelonChart() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-              {chartSongs.map((song) => (
+              {filteredSongs.map((song) => (
                 <Card key={song.rank} className="bg-white/5 border-white/10 overflow-hidden">
                   <div className="relative">
                     <img
@@ -387,15 +389,6 @@ export function MelonChart() {
                     <div className="absolute top-2 left-2">
                       <Badge className="bg-green-600 px-2 py-1">{song.rank}</Badge>
                     </div>
-                    <Button
-                      size="icon"
-                      className="absolute bottom-2 right-2 bg-green-600 hover:bg-green-500 rounded-full h-10 w-10"
-                      onClick={() => downloadSingleSong(song)}
-                      disabled={!isLoggedIn}
-                      title={!isLoggedIn ? "로그인 후 이용 가능합니다" : "다운로드"}
-                    >
-                      <Download className="h-5 w-5" />
-                    </Button>
                   </div>
                   <CardContent className="p-3">
                     <p className="font-medium truncate">{song.title}</p>
@@ -411,68 +404,7 @@ export function MelonChart() {
               ))}
             </div>
           )}
-        </TabsContent>
-
-        <TabsContent value="downloads" className="mt-4">
-          <div className="space-y-4">
-            {downloadTasks.length === 0 ? (
-              <div className="text-center text-gray-400 py-8">
-                <Music className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>다운로드 중인 항목이 없습니다</p>
-              </div>
-            ) : (
-              downloadTasks.map((task, index) => (
-                <Card key={index} className="bg-white/5 border-white/10">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
-                      <img
-                        src={task.coverUrl || "/placeholder.svg"}
-                        width={60}
-                        height={60}
-                        alt={`${task.title} cover`}
-                        className="rounded"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = "/placeholder.svg";
-                        }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{task.title}</p>
-                        <p className="text-sm text-gray-400 truncate">{task.artist}</p>
-                        
-                        <div className="mt-2">
-                          <Progress value={task.progress} className="h-2" />
-                        </div>
-                        
-                        <div className="flex justify-between items-center mt-2 text-xs text-gray-400">
-                          <div className="flex items-center">
-                            <Music className="w-3 h-3 mr-1" />
-                            <span>MP3</span>
-                          </div>
-                          <div className="flex items-center">
-                            <Clock className="w-3 h-3 mr-1" />
-                            <span>
-                              {task.status === "completed"
-                                ? "완료됨"
-                                : task.status === "failed"
-                                  ? task.error || "다운로드 실패"
-                                  : task.status === "queued"
-                                    ? "대기중"
-                                    : task.progress < 50
-                                      ? "약 2분 남음"
-                                      : "약 1분 남음"}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-        </TabsContent>
-      </Tabs>
+      </div>
     </div>
   )
 }

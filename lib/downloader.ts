@@ -14,6 +14,7 @@ import { getBinaryPaths } from './utils/binary-installer';
 import https from 'https';
 import http from 'http';
 import url from 'url';
+import type { DownloadQueue } from '@prisma/client';
 
 // 바이너리 경로 가져오기
 const { ytdlp: YTDLP_PATH, ffmpeg: FFMPEG_PATH } = getBinaryPaths();
@@ -27,6 +28,7 @@ export enum DownloadStatus {
   PROCESSING = 'processing',
   COMPLETED = 'completed',
   FAILED = 'failed',
+  PAUSED = 'paused',
 }
 
 // 다운로드 타입
@@ -45,9 +47,7 @@ export enum FileGroupType {
 }
 
 // 그룹 정보 인터페이스
-interface FileGroup {
-  id: string;
-  type: FileGroupType;
+interface GroupInfo {
   name: string;
   folderPath: string;
   createdAt: Date;
@@ -99,42 +99,82 @@ function sanitizeFileName(filename: string): string {
     || 'untitled';
 }
 
+async function validateAndCleanupFile(filePath: string): Promise<boolean> {
+  try {
+    const stats = await fs.stat(filePath);
+    if (stats.size === 0) {
+      await fs.unlink(filePath);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 /**
  * 이미지 URL에서 파일 다운로드
  */
 async function downloadImage(imageUrl: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const parsedUrl = url.parse(imageUrl);
-    const httpModule = parsedUrl.protocol === 'https:' ? https : http;
-    
-    httpModule.get(imageUrl, (response) => {
-      if (response.statusCode === 200) {
-        const fileStream = fsSync.createWriteStream(outputPath);
-        response.pipe(fileStream);
-        
-        fileStream.on('finish', () => {
-          fileStream.close();
-          resolve();
-        });
-        
-        fileStream.on('error', (err: Error) => {
-          fsSync.unlink(outputPath, () => {}); // 실패 시 파일 삭제
-          reject(err);
-        });
-      } else if (response.statusCode === 302 || response.statusCode === 301) {
-        // 리디렉션 처리
-        if (response.headers.location) {
-          downloadImage(response.headers.location, outputPath)
-            .then(resolve)
-            .catch(reject);
-        } else {
-          reject(new Error('Redirect without location'));
-        }
-      } else {
-        reject(new Error(`Failed to download image: ${response.statusCode}`));
+    const fileStream = fsSync.createWriteStream(outputPath, { flags: 'w' });
+    let hasError = false;
+
+    https.get(imageUrl, response => {
+      if (response.statusCode === 302) {
+        fileStream.close();
+        return downloadImage(response.headers.location!, outputPath)
+          .then(resolve)
+          .catch(reject);
       }
-    }).on('error', (err: Error) => {
-      reject(err);
+
+      if (response.statusCode !== 200) {
+        hasError = true;
+        fileStream.close();
+        return reject(new Error(`Failed to download image: ${response.statusCode}`));
+      }
+
+      response.pipe(fileStream);
+
+      fileStream.on('finish', async () => {
+        fileStream.close();
+        if (hasError) {
+          try {
+            await fs.unlink(outputPath);
+          } catch (error) {
+            console.error('Failed to delete incomplete file:', error);
+          }
+          return;
+        }
+        
+        const isValid = await validateAndCleanupFile(outputPath);
+        if (!isValid) {
+          reject(new Error('Downloaded file is empty'));
+          return;
+        }
+        
+        resolve();
+      });
+    }).on('error', async (error) => {
+      hasError = true;
+      fileStream.close();
+      try {
+        await fs.unlink(outputPath);
+      } catch (unlinkError) {
+        console.error('Failed to delete incomplete file:', unlinkError);
+      }
+      reject(error);
+    });
+
+    fileStream.on('error', async (error) => {
+      hasError = true;
+      fileStream.close();
+      try {
+        await fs.unlink(outputPath);
+      } catch (unlinkError) {
+        console.error('Failed to delete incomplete file:', unlinkError);
+      }
+      reject(error);
     });
   });
 }
@@ -315,7 +355,7 @@ export async function getYoutubeInfo(url: string): Promise<YoutubeInfo> {
           try {
             const info: YoutubeInfo = JSON.parse(output);
             resolve(info);
-          } catch (error) {
+          } catch {
             reject(new Error('JSON 파싱 오류'));
           }
         } else {
@@ -372,7 +412,7 @@ export async function getPlaylistInfo(url: string): Promise<YoutubePlaylistInfo>
             };
             
             resolve(playlistInfo);
-          } catch (error) {
+          } catch {
             reject(new Error('플레이리스트 JSON 파싱 오류'));
           }
         } else {
@@ -414,6 +454,8 @@ export function isPlaylistUrl(url: string): boolean {
  * 유튜브 MP3 다운로드
  */
 export async function downloadYoutubeMp3(queueId: string, url: string, options: any = {}) {
+  let tempFilePath: string | null = null;
+  
   try {
     // 작업 상태 업데이트
     await prisma.downloadQueue.update({
@@ -442,11 +484,21 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
     const artistForFile = isMelonChart && options.artist ? options.artist : info.uploader;
     const fileName = generateFileName(groupType, titleForFile, 'mp3', options.rank, artistForFile);
     const outputPath = path.join(groupFolder, fileName);
+    tempFilePath = outputPath;
     
     // 유틸리티 확인
     const { ytdlp, ffmpeg } = await checkUtilities();
     
     if (ytdlp && ffmpeg) {
+      // === 추가된 로깅 시작 ===
+      console.log(`[Downloader - MP3] Attempting to spawn yt-dlp. Path: ${YTDLP_PATH}`);
+      try {
+        await fs.access(YTDLP_PATH, fs.constants.X_OK); 
+        console.log(`[Downloader - MP3] yt-dlp exists at path and is executable: ${YTDLP_PATH}`);
+      } catch (err) {
+        console.error(`[Downloader - MP3] yt-dlp not found or not executable at ${YTDLP_PATH}:`, err);
+      }
+      // === 추가된 로깅 끝 ===
       return new Promise((resolve, reject) => {
         const ytdlpProcess = spawn(YTDLP_PATH, [
           '-x',
@@ -458,6 +510,7 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
         ]);
         
         let lastProgress = 0;
+        let ytdlpStderr = ''; // stderr 내용을 저장할 변수
         
         ytdlpProcess.stdout.on('data', (data) => {
           // 진행률 파싱 로직 (yt-dlp 출력을 분석해 진행률 업데이트)
@@ -479,7 +532,9 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
         });
         
         ytdlpProcess.stderr.on('data', (data) => {
-          console.log(`[yt-dlp stderr] ${data.toString()}`);
+          const errChunk = data.toString();
+          ytdlpStderr += errChunk; // 내용을 계속 추가
+          console.log('[yt-dlp stderr chunk]:', errChunk); // 실시간 청크도 로그로 남김
         });
         
         ytdlpProcess.on('close', async (code) => {
@@ -546,13 +601,19 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
                 where: { id: queueId },
                 data: {
                   status: DownloadStatus.COMPLETED,
-                  progress: 100
+                  progress: 100,
+                  fileId: fileInfo.id
                 }
               });
               
               // 소켓 이벤트 발신
-              emitDownloadStatusUpdate(queueId, DownloadStatus.COMPLETED, 100);
+              emitDownloadStatusUpdate(queueId, DownloadStatus.COMPLETED, 100, { fileId: fileInfo.id });
               emitDownloadComplete(queueId, fileInfo.id, fileInfo);
+              
+              const isValid = await validateAndCleanupFile(outputPath);
+              if (!isValid) {
+                throw new Error('Downloaded file is empty');
+              }
               
               resolve(fileInfo);
             } catch (error: any) {
@@ -611,6 +672,13 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
       throw new Error(errorMessage);
     }
   } catch (error: any) {
+    if (tempFilePath) {
+      try {
+        await fs.unlink(tempFilePath);
+      } catch (unlinkError) {
+        console.error('Failed to delete incomplete file:', unlinkError);
+      }
+    }
     console.error('MP3 다운로드 실패:', error);
     
     // 오류 상태 업데이트
@@ -633,6 +701,8 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
  * 유튜브 720p 비디오 다운로드
  */
 export async function downloadYoutubeVideo(queueId: string, url: string, options: any = {}) {
+  let tempFilePath: string | null = null;
+
   try {
     // 작업 상태 업데이트
     await prisma.downloadQueue.update({
@@ -661,113 +731,142 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
     const artistForFile = isMelonChart && options.artist ? options.artist : info.uploader;
     const fileName = generateFileName(groupType, titleForFile, 'mp4', options.rank, artistForFile);
     const outputPath = path.join(groupFolder, fileName);
+    tempFilePath = outputPath;
     
     // 유틸리티 확인
     const { ytdlp } = await checkUtilities();
     
     if (ytdlp) {
+      // === 추가된 로깅 시작 ===
+      console.log(`[Downloader - Video] Attempting to spawn yt-dlp. Path: ${YTDLP_PATH}`);
+      try {
+        await fs.access(YTDLP_PATH, fs.constants.X_OK);
+        console.log(`[Downloader - Video] yt-dlp exists at path and is executable: ${YTDLP_PATH}`);
+      } catch (err) {
+        console.error(`[Downloader - Video] yt-dlp not found or not executable at ${YTDLP_PATH}:`, err);
+      }
+      // FFMPEG 경로 로깅 추가
+      console.log(`[Downloader - Video] Attempting to use ffmpeg. Path: ${FFMPEG_PATH}`);
+      try {
+        await fs.access(FFMPEG_PATH, fs.constants.X_OK);
+        console.log(`[Downloader - Video] ffmpeg exists at path and is executable: ${FFMPEG_PATH}`);
+      } catch (err) {
+        console.error(`[Downloader - Video] ffmpeg not found or not executable at ${FFMPEG_PATH}:`, err);
+      }
+      // === 추가된 로깅 끝 ===
       return new Promise((resolve, reject) => {
         const ytdlpProcess = spawn(YTDLP_PATH, [
+          '--verbose', // 상세 로그 출력
           '-f', 'bestvideo[height<=720]+bestaudio/best[height<=720]',
+          '--merge-output-format', 'mp4', // 추가: 병합 시 출력 포맷 MP4로 지정
           '-o', outputPath,
+          '--ffmpeg-location', FFMPEG_PATH, // ffmpeg 경로 명시
           url
         ]);
         
-        ytdlpProcess.stdout.on('data', (data) => {
-          // 진행률 파싱 로직
-          const output = data.toString();
-          const progressMatch = output.match(/(\d+\.?\d*)%/);
-          if (progressMatch && progressMatch[1]) {
-            const progress = parseInt(progressMatch[1], 10);
-            prisma.downloadQueue.update({
-              where: { id: queueId },
-              data: { progress }
-            }).catch(console.error);
-            
-            // 소켓 이벤트 발신
-            emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, progress);
-          }
-        });
-        
+        let ytdlpStderr = ''; // stderr 내용을 저장할 변수
         ytdlpProcess.stderr.on('data', (data) => {
-          console.log('yt-dlp 오류 출력:', data.toString());
+          const errChunk = data.toString();
+          ytdlpStderr += errChunk; // 내용을 계속 추가
+          console.log('[yt-dlp stderr chunk]:', errChunk); // 실시간 청크도 로그로 남김
         });
         
         ytdlpProcess.on('close', async (code) => {
           if (code === 0) {
             try {
-              // 파일 존재 여부 확인 후 크기 가져오기
               let fileSize = 0;
-              if (ytdlp) {
-                try {
-                  const fileStat = await fs.stat(outputPath);
-                  fileSize = fileStat.size;
-                } catch (statError) {
-                  console.error('파일 상태 확인 실패:', statError);
-                  fileSize = 0;
-                }
-              } else {
-                fileSize = 10 * 1024 * 1024; // 더미 크기
+              let fileExists = false;
+              try {
+                const fileStat = await fs.stat(outputPath);
+                fileSize = fileStat.size;
+                fileExists = true;
+              } catch (statError) {
+                console.error(`[다운로드 ${queueId}] 파일 상태 확인 실패: ${outputPath}`, statError);
+                // 파일이 없거나 접근 불가능한 경우, 실패로 간주
               }
 
-              // 파일 DB에 저장
-              const file = await prisma.file.create({
-                data: {
-                  title: titleForFile || '알 수 없는 제목',
-                  artist: artistForFile || '알 수 없는 아티스트',
-                  fileType: 'MP4',
-                  fileSize: fileSize,
-                  duration: info.duration || 0,
-                  path: outputPath,
-                  thumbnailPath: info.thumbnail || null,
-                  sourceUrl: url, // 원본 유튜브 URL 저장
-                  groupType: groupType,
-                  groupName: groupName,
-                  rank: options.rank || null,
+              // 파일이 존재하고 크기가 0보다 큰 경우에만 성공으로 처리
+              if (fileExists && fileSize > 0) {
+                const file = await prisma.file.create({
+                  data: {
+                    title: titleForFile || '알 수 없는 제목',
+                    artist: artistForFile || '알 수 없는 아티스트',
+                    fileType: 'MP4',
+                    fileSize: fileSize, // 실제 파일 크기
+                    duration: info.duration || 0,
+                    path: outputPath,
+                    thumbnailPath: info.thumbnail || null,
+                    sourceUrl: url,
+                    groupType: groupType,
+                    groupName: groupName,
+                    rank: options.rank || null,
+                  }
+                });
+
+                await prisma.downloadQueue.update({
+                  where: { id: queueId },
+                  data: {
+                    status: DownloadStatus.COMPLETED,
+                    progress: 100,
+                    fileId: file.id
+                  }
+                });
+
+                emitDownloadStatusUpdate(queueId, DownloadStatus.COMPLETED, 100, { fileId: file.id });
+                emitDownloadComplete(queueId, file.id, file);
+                
+                resolve(file);
+
+              } else {
+                // 파일 크기가 0이거나 파일이 없는 경우 - 다운로드 실패 처리
+                const failureReason = fileExists ? '다운로드된 파일 크기가 0입니다.' : '다운로드된 파일을 찾을 수 없습니다.';
+                const detailedError = `${failureReason}. yt-dlp stderr: ${ytdlpStderr || '(내용 없음)'}`;
+                console.error(`[다운로드 ${queueId}] 실패: ${detailedError} 경로: ${outputPath}`);
+                
+                await prisma.downloadQueue.update({
+                  where: { id: queueId },
+                  data: {
+                    status: DownloadStatus.FAILED,
+                    error: detailedError // 상세 오류 메시지 저장
+                  }
+                });
+                emitDownloadError(queueId, detailedError);
+
+                // 임시 파일 삭제 시도 (파일이 실제로 0바이트로 존재한다면)
+                if (fileExists && fileSize === 0 && tempFilePath) {
+                    try { await fs.unlink(tempFilePath); console.log(`[다운로드 ${queueId}] 0바이트 파일 삭제: ${tempFilePath}`); } catch (e) { /* ignore */ }
                 }
-              });
-              
-              // 작업 완료 상태 업데이트
-              await prisma.downloadQueue.update({
-                where: { id: queueId },
-                data: { status: DownloadStatus.COMPLETED, progress: 100 }
-              });
-              
-              // 소켓 이벤트 발신
-              emitDownloadComplete(queueId, file.id, file);
-              
-              resolve(file);
+                
+                reject(new Error(detailedError));
+              }
             } catch (dbError) {
               console.error('데이터베이스 저장 오류:', dbError);
               
-              // 작업 실패 상태 업데이트
+              const detailedError = `데이터베이스 저장 실패: ${dbError instanceof Error ? dbError.message : '알 수 없는 오류'}. yt-dlp stderr: ${ytdlpStderr || ' (내용 없음)'}`;
+              console.error('[다운로드 ${queueId}] DB 오류:', detailedError);
               await prisma.downloadQueue.update({
                 where: { id: queueId },
                 data: { 
                   status: DownloadStatus.FAILED, 
-                  error: `데이터베이스 저장 실패: ${dbError instanceof Error ? dbError.message : '알 수 없는 오류'}` 
+                  error: detailedError 
                 }
               });
-              
-              // 소켓 이벤트 발신
-              emitDownloadError(queueId, `데이터베이스 저장 실패: ${dbError instanceof Error ? dbError.message : '알 수 없는 오류'}`);
-              
+              emitDownloadError(queueId, detailedError);
               reject(dbError);
             }
           } else {
             // 작업 실패 상태 업데이트
+            const detailedError = `yt-dlp 프로세스가 코드 ${code}로 종료됨. Stderr: ${ytdlpStderr || '(내용 없음)'}`;
+            console.error(`[다운로드 ${queueId}] yt-dlp 실패: ${detailedError}`);
             await prisma.downloadQueue.update({
               where: { id: queueId },
               data: { 
                 status: DownloadStatus.FAILED, 
-                error: `yt-dlp 프로세스가 코드 ${code}로 종료됨` 
+                error: detailedError 
               }
             });
-            
-            // 소켓 이벤트 발신
-            emitDownloadError(queueId, `yt-dlp 프로세스가 코드 ${code}로 종료됨`);
-            
-            reject(new Error(`yt-dlp 프로세스가 코드 ${code}로 종료됨`));
+            emitDownloadError(queueId, detailedError);
+            reject(new Error(detailedError));
           }
         });
       });
@@ -819,11 +918,21 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
             // 작업 완료 상태 업데이트
             await prisma.downloadQueue.update({
               where: { id: queueId },
-              data: { status: DownloadStatus.COMPLETED, progress: 100 }
+              data: { 
+                status: DownloadStatus.COMPLETED, 
+                progress: 100,
+                fileId: file.id
+              }
             });
             
             // 소켓 이벤트 발신
+            emitDownloadStatusUpdate(queueId, DownloadStatus.COMPLETED, 100, { fileId: file.id });
             emitDownloadComplete(queueId, file.id, file);
+            
+            const isValid = await validateAndCleanupFile(outputPath);
+            if (!isValid) {
+              throw new Error('Downloaded file is empty');
+            }
             
             resolve(file);
           }
@@ -831,6 +940,13 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
       });
     }
   } catch (error) {
+    if (tempFilePath) {
+      try {
+        await fs.unlink(tempFilePath);
+      } catch (unlinkError) {
+        console.error('Failed to delete incomplete file:', unlinkError);
+      }
+    }
     console.error('비디오 다운로드 오류:', error);
     
     // 작업 실패 상태 업데이트
@@ -1084,19 +1200,11 @@ export async function downloadPlaylistVideo(queueId: string, url: string, option
               itemUrl
             ]);
             
-            ytdlpProcess.stdout.on('data', (data) => {
-              // 진행률 파싱 로직
-              const output = data.toString();
-              const progressMatch = output.match(/(\d+\.?\d*)%/);
-              if (progressMatch && progressMatch[1]) {
-                const itemProgress = parseInt(progressMatch[1], 10);
-                // 항목 진행률 이벤트 발신
-                emitPlaylistItemProgress(queueId, index, totalItems, entry.title, itemProgress);
-              }
-            });
-            
+            let ytdlpStderr = ''; // stderr 내용을 저장할 변수
             ytdlpProcess.stderr.on('data', (data) => {
-              console.log(`항목 ${index + 1} 오류 출력:`, data.toString());
+              const errChunk = data.toString();
+              ytdlpStderr += errChunk; // 내용을 계속 추가
+              console.log('[yt-dlp stderr chunk]:', errChunk); // 실시간 청크도 로그로 남김
             });
             
             ytdlpProcess.on('close', (code) => {

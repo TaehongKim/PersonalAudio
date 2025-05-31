@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useDownloadStatus } from '@/hooks/useSocket';
 import Link from 'next/link';
-import Image from 'next/image';
 
 interface DownloadStatusProps {
   downloadId: string;

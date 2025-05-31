@@ -135,6 +135,70 @@ export async function cancelDownload(id: string) {
 }
 
 /**
+ * 다운로드 작업 중지
+ */
+export async function pauseDownload(id: string) {
+  return prisma.downloadQueue.update({
+    where: { id },
+    data: {
+      status: DownloadStatus.PAUSED,
+    },
+  });
+}
+
+/**
+ * 다운로드 작업 재개
+ */
+export async function resumeDownload(id: string) {
+  const updated = await prisma.downloadQueue.update({
+    where: { id },
+    data: {
+      status: DownloadStatus.PENDING,
+    },
+  });
+  
+  // 큐 처리 재시작
+  processQueue();
+  
+  return updated;
+}
+
+/**
+ * 전체 큐 중지
+ */
+export async function pauseAllDownloads() {
+  return prisma.downloadQueue.updateMany({
+    where: {
+      status: {
+        in: [DownloadStatus.PENDING, DownloadStatus.PROCESSING]
+      }
+    },
+    data: {
+      status: DownloadStatus.PAUSED,
+    },
+  });
+}
+
+/**
+ * 전체 큐 재개
+ */
+export async function resumeAllDownloads() {
+  const updated = await prisma.downloadQueue.updateMany({
+    where: {
+      status: DownloadStatus.PAUSED
+    },
+    data: {
+      status: DownloadStatus.PENDING,
+    },
+  });
+  
+  // 큐 처리 재시작
+  processQueue();
+  
+  return updated;
+}
+
+/**
  * 완료된 오래된 다운로드 작업 정리
  */
 export async function cleanupOldDownloads(daysToKeep = 7) {

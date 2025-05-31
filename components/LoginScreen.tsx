@@ -56,7 +56,7 @@ export function LoginScreen() {
           <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
             <Music size={32} />
           </div>
-          <CardTitle className="text-2xl font-bold">YC_mp3_Web</CardTitle>
+          <CardTitle className="text-2xl font-bold">귀요미 윤채의 음악방</CardTitle>
           <CardDescription className="text-gray-300">유튜브 및 멜론 차트 음악 다운로더</CardDescription>
         </CardHeader>
         <CardContent>

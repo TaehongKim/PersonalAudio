@@ -1,6 +1,6 @@
 "use client"
 
-import { Home, Music, Search, FileMusic, Share2, Settings, ListMusic, Clock } from "lucide-react"
+import { Home, Music, Search, FileMusic, Share2, Settings, Download } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/contexts/ThemeContext"
 
@@ -18,8 +18,7 @@ export function MobileNavigation({ activeTab, setActiveTab }: MobileNavigationPr
     { id: "youtube", label: "유튜브", icon: Music },
     { id: "melon", label: "멜론", icon: Search },
     { id: "files", label: "내 파일", icon: FileMusic },
-    { id: "playlist", label: "플레이리스트", icon: ListMusic },
-    { id: "recent", label: "최근", icon: Clock },
+    { id: "downloads", label: "다운로드", icon: Download },
     { id: "shares", label: "공유", icon: Share2 },
     { id: "settings", label: "설정", icon: Settings },
   ]

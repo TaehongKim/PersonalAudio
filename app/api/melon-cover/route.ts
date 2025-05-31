@@ -1,16 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import https from 'https';
 
-interface MelonSearchResult {
-  data: {
-    list: Array<{
-      albumId: string;
-      albumImg: string;
-      songName: string;
-      artistName: string;
-    }>;
-  };
-}
 
 export async function GET(request: NextRequest) {
   try {

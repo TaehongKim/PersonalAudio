@@ -1,0 +1,35 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { resumeDownload } from '@/lib/queue-manager';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth-options';
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const id = params.id;
+    if (!id) {
+      return NextResponse.json({ error: 'Download ID is required' }, { status: 400 });
+    }
+
+    const result = await resumeDownload(id);
+    
+    return NextResponse.json({
+      success: true,
+      message: '다운로드가 재개되었습니다.',
+      data: result
+    });
+  } catch (error) {
+    console.error('다운로드 재개 오류:', error);
+    return NextResponse.json({
+      success: false,
+      message: '다운로드 재개 중 오류가 발생했습니다.'
+    }, { status: 500 });
+  }
+}

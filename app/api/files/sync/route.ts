@@ -6,7 +6,7 @@ import fsSync from 'fs';
 
 const MEDIA_STORAGE_PATH = process.env.MEDIA_STORAGE_PATH || './storage';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // 1. DB에서 모든 파일 정보 가져오기
     const dbFiles = await prisma.file.findMany({

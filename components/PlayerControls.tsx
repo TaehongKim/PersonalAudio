@@ -10,7 +10,7 @@ import { useState } from "react"
 export function PlayerControls() {
   const { theme } = useTheme()
   const isDark = theme === "dark"
-  const { state, togglePlay, next, previous, seek, setVolume, toggleRepeat, toggleShuffle, formatTime } = usePlayer()
+  const { state, togglePlay, next, previous, seek, setVolume, toggleRepeat, toggleShuffle, formatTime, jumpToIndex } = usePlayer()
   const [showVolumeSlider, setShowVolumeSlider] = useState(false)
 
   // 현재 파일이 없으면 기본 플레이어 UI 표시
@@ -21,6 +21,17 @@ export function PlayerControls() {
 
   const handleVolumeChange = (value: number[]) => {
     setVolume(value[0] / 100)
+  }
+
+  // 플레이리스트 곡 선택
+  const handlePlaylistItemClick = (index: number) => {
+    if (index === state.currentIndex) {
+      // 현재 재생 중인 곡이면 재생/일시정지 토글
+      togglePlay()
+    } else {
+      // 다른 곡이면 해당 곡으로 이동 (자동 재생 포함)
+      jumpToIndex(index)
+    }
   }
 
   // const progressPercentage = state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0
@@ -94,28 +105,28 @@ export function PlayerControls() {
             <Button
               variant="ghost"
               size="icon"
-              className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
+              className={`h-10 w-10 ${isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}`}
               onClick={() => {
                 console.log('이전 곡 버튼 클릭, 플레이리스트 길이:', state.playlist.length)
                 previous()
               }}
-              disabled={!state.currentFile || state.playlist.length <= 1}
+              disabled={!state.currentFile}
             >
-              <SkipBack size={18} />
+              <SkipBack size={20} />
             </Button>
             
             {/* 재생/일시정지 */}
             <Button
-              className={`${isDark ? "bg-white text-black hover:bg-gray-200" : "bg-black text-white hover:bg-gray-800"} rounded-full h-10 w-10 p-0 hover:scale-105 transition disabled:opacity-50 disabled:hover:scale-100`}
+              className={`${isDark ? "bg-white text-black hover:bg-gray-200" : "bg-black text-white hover:bg-gray-800"} rounded-full h-12 w-12 p-0 hover:scale-105 transition disabled:opacity-50 disabled:hover:scale-100`}
               onClick={togglePlay}
               disabled={!state.currentFile || state.isLoading}
             >
               {state.isLoading ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
               ) : state.isPlaying ? (
-                <Pause fill="currentColor" size={18} />
+                <Pause fill="currentColor" size={22} />
               ) : (
-                <Play fill="currentColor" size={18} />
+                <Play fill="currentColor" size={22} />
               )}
             </Button>
             
@@ -123,14 +134,14 @@ export function PlayerControls() {
             <Button
               variant="ghost"
               size="icon"
-              className={isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}
+              className={`h-10 w-10 ${isDark ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"}`}
               onClick={() => {
                 console.log('다음 곡 버튼 클릭, 플레이리스트 길이:', state.playlist.length)
                 next()
               }}
-              disabled={!state.currentFile || state.playlist.length <= 1}
+              disabled={!state.currentFile}
             >
-              <SkipForward size={18} />
+              <SkipForward size={20} />
             </Button>
             
             {/* 반복 */}
@@ -201,6 +212,52 @@ export function PlayerControls() {
           </div>
         </div>
       </div>
+
+      {/* 플레이리스트 표기 (2곡 이상일 때) */}
+      {state.playlist.length > 1 && (
+        <div className="mt-2 max-h-32 overflow-y-auto rounded bg-black/10 dark:bg-white/10 p-2">
+          <div className="text-xs mb-1 text-gray-500 dark:text-gray-400">
+            플레이리스트 ({state.playlist.length}곡)
+          </div>
+          <ul className="space-y-1">
+            {state.playlist.map((file, idx) => (
+              <li
+                key={file.id}
+                className={`
+                  truncate px-2 py-1 rounded text-sm cursor-pointer transition-colors
+                  ${idx === state.currentIndex 
+                    ? (isDark ? 'bg-purple-800 text-white font-bold' : 'bg-purple-100 text-purple-900 font-bold')
+                    : (isDark ? 'hover:bg-white/10 text-gray-300' : 'hover:bg-gray-100 text-gray-700')
+                  }
+                `}
+                onClick={() => handlePlaylistItemClick(idx)}
+                title={`${file.title} ${file.artist ? `- ${file.artist}` : ''}`}
+              >
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-gray-500 dark:text-gray-400 w-6 text-center">
+                    {idx + 1}
+                  </span>
+                  {idx === state.currentIndex && (
+                    <div className="flex-shrink-0">
+                      {state.isPlaying ? (
+                        <Pause size={12} className="text-green-400" />
+                      ) : (
+                        <Play size={12} className="text-green-400" />
+                      )}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <span className="truncate">
+                      {file.title}
+                      {file.artist && <span className="text-gray-500"> - {file.artist}</span>}
+                    </span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

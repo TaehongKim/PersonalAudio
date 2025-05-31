@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, FormEvent } from "react"
-import { Moon, Sun, Bell, Lock, HardDrive, Info, LogOut } from "lucide-react"
+import { Moon, Sun, Bell, Lock, HardDrive, Info, LogOut, Trash2, RefreshCw, FolderOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
@@ -9,11 +9,39 @@ import { Slider } from "@/components/ui/slider"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
 import { useTheme } from "@/contexts/ThemeContext"
 import { type CheckedState } from "@radix-ui/react-checkbox"
 
 interface SettingsManagerProps {
   handleLogout?: () => void;
+}
+
+interface TempFileStats {
+  zipCache: {
+    files: number;
+    size: number;
+    path: string;
+  };
+  tempFiles: {
+    files: number;
+    size: number;
+    path: string;
+  };
+  total: {
+    files: number;
+    size: number;
+  };
+}
+
+// 파일 크기 포맷팅 함수
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 Bytes'
+  const k = 1024
+  const sizes = ['Bytes', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
 export function SettingsManager({ handleLogout }: SettingsManagerProps) {
@@ -32,6 +60,12 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(true)
   const [currentStorageUsage, setCurrentStorageUsage] = useState({ used: 0, percentage: 0 })
+  
+  // 임시파일 관리 상태
+  const [tempFileStats, setTempFileStats] = useState<TempFileStats | null>(null)
+  const [tempFileLoading, setTempFileLoading] = useState(false)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
+  const [cleanupMessage, setCleanupMessage] = useState("")
 
   const handleNotifyDownloadChange = (checked: CheckedState) => {
     setNotifyDownloadComplete(checked === true)
@@ -76,7 +110,56 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
     }
     
     loadSettings()
+    loadTempFileStats() // 임시파일 현황도 같이 로드
   }, [])
+
+  // 임시파일 현황 로드
+  const loadTempFileStats = async () => {
+    try {
+      setTempFileLoading(true)
+      const response = await fetch('/api/settings/cleanup')
+      if (response.ok) {
+        const data = await response.json()
+        setTempFileStats(data)
+      }
+    } catch (error) {
+      console.error('임시파일 현황 로드 오류:', error)
+    } finally {
+      setTempFileLoading(false)
+    }
+  }
+
+  // 임시파일 정리
+  const handleCleanup = async (type: 'cache' | 'temp' | 'all', maxAgeHours?: number) => {
+    try {
+      setCleanupLoading(true)
+      setCleanupMessage("")
+      
+      const params = new URLSearchParams({ type })
+      if (maxAgeHours) {
+        params.append('maxAge', maxAgeHours.toString())
+      }
+      
+      const response = await fetch(`/api/settings/cleanup?${params}`, {
+        method: 'DELETE'
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        setCleanupMessage(result.message)
+        // 정리 후 현황 다시 로드
+        await loadTempFileStats()
+      } else {
+        const error = await response.json()
+        setCleanupMessage(`오류: ${error.error}`)
+      }
+    } catch (error) {
+      console.error('임시파일 정리 오류:', error)
+      setCleanupMessage('임시파일 정리 중 오류가 발생했습니다.')
+    } finally {
+      setCleanupLoading(false)
+    }
+  }
 
   // 저장 공간 제한 업데이트
   const handleStorageLimitChange = async (newLimit: number) => {
@@ -353,6 +436,156 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
                 {isLoading ? "비밀번호 변경 중..." : "비밀번호 변경"}
               </Button>
             </form>
+          </CardContent>
+        </Card>
+
+        {/* 임시파일 관리 */}
+        <Card className={isDark ? "bg-white/5 border-white/10" : "bg-white border-gray-200"}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center">
+              <FolderOpen className="h-5 w-5 mr-2" />
+              임시파일 관리
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* 현황 표시 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium">현재 상황</h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadTempFileStats}
+                  disabled={tempFileLoading}
+                  className={isDark ? "border-white/20 text-white hover:bg-white/10" : ""}
+                >
+                  <RefreshCw className={`h-4 w-4 mr-1 ${tempFileLoading ? 'animate-spin' : ''}`} />
+                  새로고침
+                </Button>
+              </div>
+              
+              {tempFileStats ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* ZIP 캐시 */}
+                  <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50 border border-blue-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-blue-400">ZIP 캐시</span>
+                      <Badge variant="secondary" className="bg-blue-600/20 text-blue-300">
+                        {tempFileStats.zipCache.files}개
+                      </Badge>
+                    </div>
+                    <p className="text-lg font-bold">{formatFileSize(tempFileStats.zipCache.size)}</p>
+                    <p className="text-xs text-gray-400 mt-1">압축 다운로드 캐시</p>
+                  </div>
+                  
+                  {/* 임시 파일 */}
+                  <div className={`p-3 rounded-lg ${isDark ? 'bg-yellow-900/20 border border-yellow-500/30' : 'bg-yellow-50 border border-yellow-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-yellow-400">임시 파일</span>
+                      <Badge variant="secondary" className="bg-yellow-600/20 text-yellow-300">
+                        {tempFileStats.tempFiles.files}개
+                      </Badge>
+                    </div>
+                    <p className="text-lg font-bold">{formatFileSize(tempFileStats.tempFiles.size)}</p>
+                    <p className="text-xs text-gray-400 mt-1">다운로드 임시 파일</p>
+                  </div>
+                  
+                  {/* 전체 */}
+                  <div className={`p-3 rounded-lg ${isDark ? 'bg-purple-900/20 border border-purple-500/30' : 'bg-purple-50 border border-purple-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-purple-400">전체</span>
+                      <Badge variant="secondary" className="bg-purple-600/20 text-purple-300">
+                        {tempFileStats.total.files}개
+                      </Badge>
+                    </div>
+                    <p className="text-lg font-bold">{formatFileSize(tempFileStats.total.size)}</p>
+                    <p className="text-xs text-gray-400 mt-1">모든 임시 파일</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-gray-400">
+                  {tempFileLoading ? '로딩 중...' : '현황을 불러올 수 없습니다.'}
+                </div>
+              )}
+            </div>
+            
+            {/* 정리 작업 */}
+            <div className="space-y-3">
+              <h3 className="font-medium">정리 작업</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Button
+                  onClick={() => handleCleanup('cache')}
+                  disabled={cleanupLoading}
+                  className={isDark ? "bg-blue-600 hover:bg-blue-700" : "bg-blue-500 hover:bg-blue-600"}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  ZIP 캐시 정리
+                </Button>
+                
+                <Button
+                  onClick={() => handleCleanup('temp')}
+                  disabled={cleanupLoading}
+                  className={isDark ? "bg-yellow-600 hover:bg-yellow-700" : "bg-yellow-500 hover:bg-yellow-600"}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  임시 파일 정리
+                </Button>
+                
+                <Button
+                  onClick={() => handleCleanup('all')}
+                  disabled={cleanupLoading}
+                  className={isDark ? "bg-red-600 hover:bg-red-700" : "bg-red-500 hover:bg-red-600"}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  전체 정리
+                </Button>
+              </div>
+              
+              {/* 오래된 파일만 정리 */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">오래된 파일만 정리 (선택)</label>
+                <div className="flex gap-2">
+                  <Select>
+                    <SelectTrigger className={isDark ? "bg-white/10 border-white/20 text-white" : ""}>
+                      <SelectValue placeholder="기간 선택" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="24">24시간 이전</SelectItem>
+                      <SelectItem value="72">3일 이전</SelectItem>
+                      <SelectItem value="168">1주일 이전</SelectItem>
+                      <SelectItem value="720">30일 이전</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={() => handleCleanup('all', 168)} // 1주일 이전 파일 정리
+                    disabled={cleanupLoading}
+                    variant="outline"
+                    className={isDark ? "border-white/20 text-white hover:bg-white/10" : ""}
+                  >
+                    조건부 정리
+                  </Button>
+                </div>
+              </div>
+            </div>
+            
+            {/* 결과 메시지 */}
+            {cleanupMessage && (
+              <div className={`p-3 rounded-lg text-sm ${
+                cleanupMessage.includes('오류') 
+                  ? (isDark ? 'bg-red-900/20 border border-red-500/30 text-red-300' : 'bg-red-50 border border-red-200 text-red-600')
+                  : (isDark ? 'bg-green-900/20 border border-green-500/30 text-green-300' : 'bg-green-50 border border-green-200 text-green-600')
+              }`}>
+                {cleanupMessage}
+              </div>
+            )}
+            
+            {cleanupLoading && (
+              <div className="text-center py-2 text-gray-400">
+                <RefreshCw className="h-4 w-4 animate-spin inline mr-2" />
+                정리 중...
+              </div>
+            )}
           </CardContent>
         </Card>
 

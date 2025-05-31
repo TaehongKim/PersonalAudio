@@ -29,6 +29,7 @@ model File {
   shares        Share[]   // 공유 링크 관계
   playlistItems PlaylistItem[]  // 플레이리스트 항목 관계
   playHistory   PlayHistory[]   // 재생 기록 관계
+  downloadQueue DownloadQueue[] // 다운로드 큐 관계
 }
 
 model Share {
@@ -58,6 +59,8 @@ model DownloadQueue {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   error     String?
+  fileId    String?
+  file      File?     @relation(fields: [fileId], references: [id])
 }
 
 model Playlist {

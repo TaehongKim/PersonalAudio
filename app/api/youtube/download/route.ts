@@ -8,7 +8,7 @@ ensureServerInitialized();
 
 export async function POST(request: Request) {
   try {
-    const { url, type } = await request.json();
+    const { url, type = 'mp3' } = await request.json(); // type이 없을 경우 기본값으로 'mp3' 사용
 
     // 필수 필드 확인
     if (!url) {
@@ -33,20 +33,22 @@ export async function POST(request: Request) {
     // 다운로드 타입 확인 및 설정
     let downloadType: DownloadType;
     
-    // 클라이언트에서 _playlist가 포함된 타입이나 직접 플레이리스트 체크
-    if (type.includes('playlist') || isPlaylist) {
+    // 타입 문자열이 유효한지 확인
+    if (typeof type !== 'string') {
+      downloadType = DownloadType.MP3; // 기본값
+    } else if (type.includes('playlist') || isPlaylist) {
       // 플레이리스트인 경우
       if (type.includes('video')) {
         downloadType = DownloadType.PLAYLIST_VIDEO;
       } else {
-        downloadType = DownloadType.PLAYLIST_MP3; // 기본값
+        downloadType = DownloadType.PLAYLIST_MP3;
       }
     } else {
       // 단일 영상인 경우
       if (type.includes('video') || type === 'video720p') {
         downloadType = DownloadType.VIDEO;
       } else {
-        downloadType = DownloadType.MP3; // 기본값
+        downloadType = DownloadType.MP3;
       }
     }
 

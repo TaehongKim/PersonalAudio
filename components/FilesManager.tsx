@@ -30,6 +30,8 @@ import {
   HardDrive,
   Database,
   ExternalLink,
+  ChevronsUpDown,
+  ChevronsDownUp,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -46,6 +48,21 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { usePlayer } from "@/contexts/PlayerContext"
+import { useSocket } from "@/hooks/useSocket"
+import { toast } from "react-toastify"
+import { FileItem } from '@/components/FileItem';
+
+// Debounce 유틸리티 함수
+function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<F>): Promise<ReturnType<F>> =>
+    new Promise(resolve => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      timeout = setTimeout(() => resolve(func(...args)), waitFor);
+    });
+}
 
 // API 응답 타입 정의
 interface FileData {
@@ -61,20 +78,20 @@ interface FileData {
   downloads: number
   groupType?: string
   groupName?: string
-  rank?: number
+  rank: number | null
   melonCoverUrl?: string
+  groupTotalCount?: number
 }
 
-// 파일 그룹 인터페이스
 interface FileGroup {
   groupType: string
   groupName: string
   files: FileData[]
   createdAt: string
+  totalFiles: number
 }
 
-// 파일 동기화 상태 인터페이스
-interface FileSyncStatus {
+interface SyncStatus {
   id: string
   title: string
   path: string
@@ -96,21 +113,13 @@ interface SyncStats {
 
 interface SyncResponse {
   success: boolean
-  files: FileSyncStatus[]
+  files: SyncStatus[]
   stats: SyncStats
   orphanedFiles: string[]
 }
 
 interface FilesResponse {
   files: FileData[]
-  pagination: {
-    page: number
-    limit: number
-    totalCount: number
-    totalPages: number
-    hasNext: boolean
-    hasPrev: boolean
-  }
   totalStorageUsed: number
 }
 
@@ -128,13 +137,19 @@ interface StatsResponse {
   popularFiles: FileData[]
 }
 
-// 유틸리티 함수들
+interface DownloadQueue {
+  status: string
+  progress: number
+  id: string
+  [key: string]: any
+}
+
 const formatFileSize = (bytes: number): string => {
   if (bytes === 0) return '0 Bytes'
   const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB']
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
 const formatDuration = (seconds: number | null): string => {
@@ -148,84 +163,138 @@ const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleDateString('ko-KR')
 }
 
-// 파일을 그룹별로 분류하는 함수
 const groupFiles = (files: FileData[]): FileGroup[] => {
   const grouped = files.reduce((acc, file) => {
-    const groupKey = `${file.groupType || 'unknown'}_${file.groupName || 'unknown'}`
-    
+    const groupKey = `${file.groupType || 'unknown'}_${file.groupName || 'unknown'}`;
     if (!acc[groupKey]) {
       acc[groupKey] = {
         groupType: file.groupType || 'unknown',
         groupName: file.groupName || 'unknown',
         files: [],
-        createdAt: file.createdAt
-      }
+        createdAt: file.createdAt,
+        totalFiles: file.groupTotalCount || 0
+      };
     }
-    
-    acc[groupKey].files.push(file)
-    
-    // 가장 오래된 파일의 날짜를 그룹 생성일로 사용
+    acc[groupKey].files.push(file);
     if (file.createdAt < acc[groupKey].createdAt) {
-      acc[groupKey].createdAt = file.createdAt
+      acc[groupKey].createdAt = file.createdAt;
     }
-    
-    return acc
-  }, {} as Record<string, FileGroup>)
-  
+    return acc;
+  }, {} as Record<string, FileGroup>);
   return Object.values(grouped).sort((a, b) => 
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  )
-}
+  );
+};
 
-// 그룹 타입별 표시명
 const getGroupTypeDisplayName = (groupType: string): string => {
   switch (groupType) {
-    case 'youtube_single':
-      return '유튜브 단일 파일'
-    case 'youtube_playlist':
-      return '유튜브 플레이리스트'
-    case 'melon_chart':
-      return '멜론차트'
-    default:
-      return '기타'
+    case 'youtube_single': return '유튜브 단일 파일'
+    case 'youtube_playlist': return '유튜브 플레이리스트'
+    case 'melon_chart': return '멜론차트'
+    default: return '기타'
   }
 }
 
 export function FilesManager() {
-  // 상태 관리
   const [files, setFiles] = useState<FileData[]>([])
   const [fileGroups, setFileGroups] = useState<FileGroup[]>([])
   const [viewMode, setViewMode] = useState<'list' | 'groups'>('groups')
   const [stats, setStats] = useState<StatsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [sortBy, setSortBy] = useState("createdAt")
   const [sortOrder, setSortOrder] = useState("desc")
   const [filterType, setFilterType] = useState("all")
-  const [selectedItems, setSelectedItems] = useState<string[]>([])
-  const { state: playerState, loadFile, loadPlaylist, play, pause } = usePlayer()
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pagination, setPagination] = useState<FilesResponse['pagination'] | null>(null)
-  const [processingAction, setProcessingAction] = useState<string | null>(null)
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [shareFormData, setShareFormData] = useState({
-    expiresIn: 168 as number | null, // 7일 (시간 단위)
+    expiresIn: 168 as number | null,
     maxDownloads: null as number | null
   })
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [processingAction, setProcessingAction] = useState<string | null>(null)
   const [editingGroup, setEditingGroup] = useState<string | null>(null)
   const [editingGroupName, setEditingGroupName] = useState("")
   const [melonCoverCache, setMelonCoverCache] = useState<Record<string, string>>({})
-  
-  // 파일 동기화 관련 상태
-  const [showSyncPanel, setShowSyncPanel] = useState(false)
-  const [syncData, setSyncData] = useState<SyncResponse | null>(null)
-  const [syncLoading, setSyncLoading] = useState(false)
-  const [syncStats, setSyncStats] = useState<SyncStats | null>(null)
+  const [downloadQueues, setDownloadQueues] = useState<Record<string, DownloadQueue>>({})
+  const [isExpanded, setIsExpanded] = useState<Record<string, boolean>>({})
+  const [allGroupsExpanded, setAllGroupsExpanded] = useState(false);
+  const [melonRankFilter, setMelonRankFilter] = useState<Record<string, number | null>>({});
+  const [downloadMode, setDownloadMode] = useState<'zip' | 'sequential'>('zip');
+  const [showFileSyncDialog, setShowFileSyncDialog] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResponse | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
 
-  // 멜론 앨범 커버 가져오기 함수
-  const fetchMelonCover = useCallback(async (title: string, artist: string): Promise<string | null> => {
+  const { 
+    state: playerState, 
+    play, 
+    pause, 
+    loadFile, 
+    loadPlaylist, 
+    audioRef, 
+    videoRef, 
+    togglePlay, 
+    seek,
+    setVolume
+  } = usePlayer()
+  const socket = useSocket()
+
+  const loadFiles = useCallback(async () => {
+      setLoading(true)
+      setError(null)
+    try {
+      const params = new URLSearchParams({
+        search: searchQuery,
+        sortBy: sortBy,
+        sortOrder: sortOrder,
+        fileType: filterType === "all" ? "" : filterType,
+      })
+      const response = await fetch(`/api/files?${params.toString()}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || `Error ${response.status}`)
+      }
+      const data: FilesResponse = await response.json()
+      setFiles(data.files)
+      const grouped = groupFiles(data.files)
+      setFileGroups(grouped)
+      
+      setIsExpanded(prevExpanded => {
+        const newExpandedState: Record<string, boolean> = {};
+        grouped.forEach(group => {
+          const groupKey = `${group.groupType}_${group.groupName}`;
+          newExpandedState[groupKey] = prevExpanded[groupKey] !== undefined ? prevExpanded[groupKey] : allGroupsExpanded;
+        });
+        return newExpandedState;
+      });
+
+    } catch (e: any) {
+      setError(e.message)
+      toast.error(`파일 로드 실패: ${e.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [searchQuery, sortBy, sortOrder, filterType, allGroupsExpanded])
+
+  const loadStats = useCallback(async () => {
+    try {
+      const response = await fetch("/api/files/stats")
+      if (!response.ok) {
+        throw new Error('통계 정보를 불러오는데 실패했습니다.')
+      }
+      const data: StatsResponse = await response.json()
+      setStats(data)
+    } catch (e: any) {
+      toast.error(`통계 로드 실패: ${e.message}`)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadFiles()
+    loadStats()
+  }, [loadFiles, loadStats])
+
+  const fetchMelonCover = useCallback(async (title: string, artist: string) => {
     const cacheKey = `${artist}_${title}`
     if (melonCoverCache[cacheKey]) {
       return melonCoverCache[cacheKey]
@@ -245,139 +314,71 @@ export function FilesManager() {
       console.error('멜론 앨범 커버 가져오기 실패:', error)
     }
     return null
-  }, [melonCoverCache])
+  }, [melonCoverCache]);
 
-  // 데이터 로딩 함수
-  const loadFiles = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: '20',
-        ...(searchQuery && { search: searchQuery }),
-        ...(sortBy && { sortBy }),
-        ...(sortOrder && { sortOrder }),
-        ...(filterType !== 'all' && { fileType: filterType })
-      })
-
-      const response = await fetch(`/api/files?${params}`)
-      if (!response.ok) {
-        throw new Error('파일 목록을 불러오는데 실패했습니다.')
+  useEffect(() => {
+    const melonFilesToFetch = files.filter(file => 
+      file.groupType === 'melon_chart' && 
+      !file.thumbnailPath && 
+      file.title && 
+      file.artist &&
+      !melonCoverCache[`${file.artist}_${file.title}`]
+    );
+    melonFilesToFetch.forEach(file => {
+      if (file.title && file.artist) {
+        fetchMelonCover(file.title, file.artist);
       }
+    });
+  }, [files, fetchMelonCover, melonCoverCache]);
 
-      const data: FilesResponse = await response.json()
-      setFiles(data.files)
-      setPagination(data.pagination)
-      
-      // 파일을 그룹별로 분류
-      const groups = groupFiles(data.files)
-      setFileGroups(groups)
-      
-      // 멜론 차트 파일들의 앨범 커버 가져오기 (썸네일이 없는 경우만)
-      const melonFiles = data.files.filter(file => 
-        file.groupType === 'melon_chart' && 
-        !file.thumbnailPath && 
-        file.title && 
-        file.artist &&
-        !melonCoverCache[`${file.artist}_${file.title}`]
-      )
-      
-      // 비동기로 앨범 커버 가져오기
-      melonFiles.forEach(async (file) => {
-        if (file.title && file.artist) {
-          await fetchMelonCover(file.title, file.artist)
-        }
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.')
-    } finally {
-      setLoading(false)
+  const calculateFilesInRank = useCallback((groupKey: string, rank: number | null) => {
+    if (!rank) return fileGroups.find(g => `${g.groupType}_${g.groupName}` === groupKey)?.files.length || 0;
+    return fileGroups.find(g => `${g.groupType}_${g.groupName}` === groupKey)?.files.filter(f => f.rank && f.rank <= rank).length || 0;
+  }, [fileGroups]);
+
+  const filterMelonChartByRank = (groupKey: string, rank: number | null) => {
+    setMelonRankFilter(prev => ({ ...prev, [groupKey]: rank }));
+  };
+
+  const getGroupDisplayName = (group: FileGroup): string => {
+    const baseName = getGroupTypeDisplayName(group.groupType);
+    if (group.groupType === 'melon_chart') {
+      const rankSuffix = melonRankFilter[`${group.groupType}_${group.groupName}`] ? 
+        ` (TOP ${melonRankFilter[`${group.groupType}_${group.groupName}`]})` : ' (전체)';
+      const filesInRank = calculateFilesInRank(`${group.groupType}_${group.groupName}`, melonRankFilter[`${group.groupType}_${group.groupName}`]);
+      return `${baseName} - ${group.groupName}${rankSuffix} (${filesInRank} / ${group.totalFiles}곡)`;
     }
-  }, [currentPage, searchQuery, sortBy, sortOrder, filterType])
-
-  // 통계 데이터 로딩
-  const loadStats = useCallback(async () => {
-    try {
-      const response = await fetch('/api/files/stats')
-      if (!response.ok) {
-        throw new Error('통계 정보를 불러오는데 실패했습니다.')
-      }
-
-      const data: StatsResponse = await response.json()
-      setStats(data)
-    } catch (err) {
-      console.error('통계 로딩 오류:', err)
-    }
-  }, [])
-
-  // 컴포넌트 마운트 시 데이터 로딩
-  useEffect(() => {
-    loadFiles()
-    loadStats()
-  }, [loadFiles, loadStats])
-
-  // 그룹이 변경될 때 모든 그룹을 기본적으로 펼치기
-  useEffect(() => {
-    if (fileGroups.length > 0) {
-      const allGroupKeys = fileGroups.map(group => `${group.groupType}_${group.groupName}`)
-      setExpandedGroups(new Set(allGroupKeys))
-    }
-  }, [fileGroups])
-
-  // 검색 쿼리 변경 시 첫 페이지로 리셋
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [searchQuery, sortBy, sortOrder, filterType])
-
-  // 파일 액션 함수들
+    return `${baseName} - ${group.groupName} (${group.files.length} / ${group.totalFiles}곡)`;
+  };
+  
   const toggleItemSelection = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (selectedItems.includes(id)) {
-      setSelectedItems(selectedItems.filter((itemId) => itemId !== id))
-    } else {
-      setSelectedItems([...selectedItems, id])
-    }
-  }
+    e.stopPropagation();
+    setSelectedItems(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
 
   const toggleSelectAll = () => {
-    const currentFileIds = files.map((file) => file.id)
-    if (selectedItems.length === currentFileIds.length) {
-      setSelectedItems([])
+    if (selectedItems.length === files.length) {
+      setSelectedItems([]);
     } else {
-      setSelectedItems(currentFileIds)
+      setSelectedItems(files.map(file => file.id));
     }
-  }
-
-  const toggleGroupExpansion = (groupKey: string) => {
-    const newExpanded = new Set(expandedGroups)
-    if (newExpanded.has(groupKey)) {
-      newExpanded.delete(groupKey)
-    } else {
-      newExpanded.add(groupKey)
-    }
-    setExpandedGroups(newExpanded)
-  }
+  };
 
   const toggleGroupSelection = (groupFiles: FileData[]) => {
-    const groupFileIds = groupFiles.map(f => f.id)
-    const allGroupSelected = groupFileIds.every(id => selectedItems.includes(id))
+    const groupFileIds = groupFiles.map(f => f.id);
+    const allSelectedInGroup = groupFileIds.every(id => selectedItems.includes(id));
     
-    if (allGroupSelected) {
-      // 그룹의 모든 파일을 선택 해제
-      setSelectedItems(selectedItems.filter(id => !groupFileIds.includes(id)))
+    if (allSelectedInGroup) {
+      setSelectedItems(prev => prev.filter(id => !groupFileIds.includes(id)));
     } else {
-      // 그룹의 모든 파일을 선택
-      const newSelected = [...selectedItems]
-      groupFileIds.forEach(id => {
-        if (!newSelected.includes(id)) {
-          newSelected.push(id)
-        }
-      })
-      setSelectedItems(newSelected)
+      setSelectedItems(prev => [
+        ...prev.filter(id => !groupFileIds.includes(id)),
+        ...groupFileIds
+      ]);
     }
-  }
+  };
 
   const handleDownloadFile = async (fileId: string) => {
     try {
@@ -392,16 +393,13 @@ export function FilesManager() {
       const a = document.createElement('a')
       a.href = url
       
-      // Content-Disposition 헤더에서 파일명 추출 (UTF-8 인코딩 지원)
       const contentDisposition = response.headers.get('Content-Disposition')
       let fileName = 'download'
       if (contentDisposition) {
-        // filename*=UTF-8''encoded_name 형식 파싱
         const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/)
         if (filenameStarMatch) {
           fileName = decodeURIComponent(filenameStarMatch[1])
         } else {
-          // 일반 filename= 형식 파싱 (fallback)
           const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/)
           if (filenameMatch) {
             fileName = filenameMatch[1]
@@ -431,21 +429,33 @@ export function FilesManager() {
       })
 
       if (!response.ok) {
-        throw new Error('파일 삭제에 실패했습니다.')
+        const errorData = await response.json()
+        throw new Error(errorData.error || '파일 삭제에 실패했습니다.')
       }
 
+      const result = await response.json()
+      if (result.success) {
       await loadFiles()
       await loadStats()
       setSelectedItems(selectedItems.filter(id => id !== fileId))
+      } else {
+        throw new Error(result.error || '파일 삭제 중 오류가 발생했습니다.')
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '파일 삭제 중 오류가 발생했습니다.')
+      const errorMessage = err instanceof Error ? err.message : '파일 삭제 중 오류가 발생했습니다.'
+      setError(errorMessage)
+      alert(`파일 삭제 실패: ${errorMessage}`)
     } finally {
       setProcessingAction(null)
     }
   }
 
-  const handleBulkDownload = async () => {
+  const handleBulkDownload = async (mode: 'zip' | 'sequential' = downloadMode) => {
     if (selectedItems.length === 0) return
+
+    if (mode === 'sequential') {
+      return handleSequentialDownload(selectedItems)
+    }
 
     try {
       setProcessingAction('bulk-download')
@@ -469,16 +479,13 @@ export function FilesManager() {
       const a = document.createElement('a')
       a.href = url
       
-      // Content-Disposition 헤더에서 파일명 추출 (UTF-8 인코딩 지원)
       const contentDisposition = response.headers.get('Content-Disposition')
       let fileName = 'files.zip'
       if (contentDisposition) {
-        // filename*=UTF-8''encoded_name 형식 파싱
         const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/)
         if (filenameStarMatch) {
           fileName = decodeURIComponent(filenameStarMatch[1])
         } else {
-          // 일반 filename= 형식 파싱 (fallback)
           const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/)
           if (filenameMatch) {
             fileName = filenameMatch[1]
@@ -495,6 +502,66 @@ export function FilesManager() {
       setSelectedItems([])
     } catch (err) {
       setError(err instanceof Error ? err.message : '대량 다운로드 중 오류가 발생했습니다.')
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  const handleSequentialDownload = async (fileIds: string[]) => {
+    try {
+      setProcessingAction('sequential-download')
+      const response = await fetch(`/api/files?fileIds=${fileIds.join(',')}`)
+      if (!response.ok) {
+        throw new Error('파일 정보를 가져올 수 없습니다.')
+      }
+      const data = await response.json()
+      const filesList = data.files || []
+
+      for (let i = 0; i < fileIds.length; i++) {
+        const fileId = fileIds[i]
+        const fileInfo = filesList.find((f: any) => f.id === fileId)
+        
+        try {
+          const response = await fetch(`/api/files/${fileId}/download`)
+          if (!response.ok) {
+            console.error(`파일 ${fileId} 다운로드 실패: ${response.status}`)
+            continue
+          }
+
+          const blob = await response.blob()
+          const url = window.URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          
+          const contentDisposition = response.headers.get('Content-Disposition')
+          let fileName = fileInfo ? `${fileInfo.title}.${fileInfo.fileType.toLowerCase()}` : `file_${i + 1}`
+          if (contentDisposition) {
+            const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/)
+            if (filenameStarMatch) {
+              fileName = decodeURIComponent(filenameStarMatch[1])
+    } else {
+              const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/)
+              if (filenameMatch) {
+                fileName = filenameMatch[1]
+              }
+            }
+          }
+          
+          a.download = fileName
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          window.URL.revokeObjectURL(url)
+
+          await new Promise(resolve => setTimeout(resolve, 500))
+        } catch (error) {
+          console.error(`파일 ${fileId} 다운로드 중 오류:`, error)
+        }
+      }
+
+      setSelectedItems([])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '순차 다운로드 중 오류가 발생했습니다.')
     } finally {
       setProcessingAction(null)
     }
@@ -518,208 +585,36 @@ export function FilesManager() {
       })
 
       if (!response.ok) {
-        throw new Error('대량 삭제에 실패했습니다.')
-      }
-
-      await loadFiles()
-      await loadStats()
-      setSelectedItems([])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '대량 삭제 중 오류가 발생했습니다.')
-    } finally {
-      setProcessingAction(null)
-    }
-  }
-
-  const handleRefresh = () => {
-    loadFiles()
-    loadStats()
-  }
-
-  const togglePlayFile = (file: FileData, e: React.MouseEvent) => {
-    e.stopPropagation()
-    console.log('파일 재생 버튼 클릭:', {
-      fileId: file.id,
-      title: file.title,
-      currentFileId: playerState.currentFile?.id,
-      isPlaying: playerState.isPlaying,
-      fileType: file.fileType
-    })
-    
-    if (playerState.currentFile?.id === file.id && playerState.isPlaying) {
-      // 현재 재생 중인 파일이면 일시정지
-      console.log('현재 파일 일시정지')
-      pause()
-    } else if (playerState.currentFile?.id === file.id && !playerState.isPlaying) {
-      // 현재 파일이지만 재생되지 않고 있으면 재생
-      console.log('현재 파일 재생')
-      play()
-    } else {
-      // 새로운 파일 로드 후 자동 재생
-      console.log('새 파일 로드 및 재생')
-      loadFile(file)
-      // loadFile 이후 잠시 대기 후 재생 시작
-      setTimeout(() => {
-        console.log('자동 재생 시작')
-        play()
-      }, 100)
-    }
-  }
-
-  const playAllFiles = () => {
-    if (files.length > 0) {
-      loadPlaylist(files, 0)
-      setTimeout(() => {
-        play()
-      }, 100)
-    }
-  }
-
-  const playGroupFiles = (groupFiles: FileData[]) => {
-    const audioFiles = groupFiles.filter(file => file.fileType.toLowerCase().includes('mp3'))
-    if (audioFiles.length > 0) {
-      loadPlaylist(audioFiles, 0)
-      setTimeout(() => {
-        play()
-      }, 100)
-    }
-  }
-
-  const startEditingGroup = (groupKey: string, currentName: string) => {
-    setEditingGroup(groupKey)
-    setEditingGroupName(currentName)
-  }
-
-  const cancelEditingGroup = () => {
-    setEditingGroup(null)
-    setEditingGroupName("")
-  }
-
-  const saveGroupName = async (groupKey: string, newName: string) => {
-    if (!newName.trim()) {
-      cancelEditingGroup()
-      return
-    }
-
-    try {
-      setProcessingAction(`rename-group-${groupKey}`)
-      
-      // groupKey 형태: "groupType_groupName"에서 첫 번째 언더스코어를 기준으로 분리
-      const firstUnderscoreIndex = groupKey.indexOf('_')
-      if (firstUnderscoreIndex === -1) {
-        throw new Error('잘못된 그룹 키 형식입니다.')
-      }
-      
-      const groupType = groupKey.substring(0, firstUnderscoreIndex)
-      const oldGroupName = groupKey.substring(firstUnderscoreIndex + 1)
-      
-      // 해당 그룹에 파일이 있는지 확인
-      const groupExists = fileGroups.some(group => 
-        `${group.groupType}_${group.groupName}` === groupKey && group.files.length > 0
-      )
-      
-      if (!groupExists) {
-        throw new Error('변경하려는 그룹에 파일이 없거나 그룹을 찾을 수 없습니다.')
-      }
-      
-      console.log('그룹명 변경 요청:', { 
-        groupKey, 
-        groupType, 
-        oldGroupName, 
-        newName: newName.trim() 
-      })
-      
-      const response = await fetch('/api/files/rename-group', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          groupType,
-          oldGroupName,
-          newGroupName: newName.trim()
-        })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        const errorMessage = errorData.error || `HTTP ${response.status}: 그룹명 변경에 실패했습니다.`
-        throw new Error(errorMessage)
+        const errorData = await response.json()
+        throw new Error(errorData.error || '대량 삭제에 실패했습니다.')
       }
 
       const result = await response.json()
-      console.log('그룹명 변경 성공:', result)
-
-      // 파일 목록 새로고침
-      await loadFiles()
-      cancelEditingGroup()
-    } catch (err) {
-      console.error('그룹명 변경 오류:', err)
-      setError(err instanceof Error ? err.message : '그룹명 변경 중 오류가 발생했습니다.')
-    } finally {
-      setProcessingAction(null)
-    }
-  }
-
-  const handleGroupDownload = async (groupFiles: FileData[]) => {
-    if (!groupFiles || groupFiles.length === 0) {
-      setError('다운로드할 파일이 없습니다. 그룹이 비어있거나 파일을 찾을 수 없습니다.')
-      return
-    }
-
-    try {
-      setProcessingAction('group-download')
-      const fileIds = groupFiles.map(f => f.id)
-      
-      console.log('그룹 다운로드 요청:', { fileCount: groupFiles.length, fileIds })
-      
-      const response = await fetch('/api/files/bulk', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          action: 'download',
-          fileIds: fileIds
-        })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        const errorMessage = errorData.error || `HTTP ${response.status}: 그룹 다운로드에 실패했습니다.`
-        throw new Error(errorMessage)
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      
-      // Content-Disposition 헤더에서 파일명 추출 (UTF-8 인코딩 지원)
-      const contentDisposition = response.headers.get('Content-Disposition')
-      let fileName = 'group-files.zip'
-      if (contentDisposition) {
-        // filename*=UTF-8''encoded_name 형식 파싱
-        const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/)
-        if (filenameStarMatch) {
-          fileName = decodeURIComponent(filenameStarMatch[1])
-        } else {
-          // 일반 filename= 형식 파싱 (fallback)
-          const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/)
-          if (filenameMatch) {
-            fileName = filenameMatch[1]
+      if (result.success) {
+        await loadFiles()
+        await loadStats()
+        setSelectedItems([])
+        
+        const successCount = result.deletedCount
+        const failedCount = result.requestedCount - result.deletedCount
+        
+        let message = `${successCount}개 파일이 삭제되었습니다.`
+        if (failedCount > 0) {
+          message += `\n${failedCount}개 파일 삭제 실패`
+          if (result.deletionResults) {
+            const failedResults = result.deletionResults.filter((r: string) => r.includes('실패'))
+            message += '\n\n실패한 파일:\n' + failedResults.join('\n')
           }
         }
+        
+        alert(message)
+      } else {
+        throw new Error(result.error || '파일 삭제 중 오류가 발생했습니다.')
       }
-      
-      a.download = fileName
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
     } catch (err) {
-      console.error('그룹 다운로드 오류:', err)
-      setError(err instanceof Error ? err.message : '그룹 다운로드 중 오류가 발생했습니다.')
+      const errorMessage = err instanceof Error ? err.message : '대량 삭제 중 오류가 발생했습니다.'
+      setError(errorMessage)
+      alert(`파일 삭제 실패: ${errorMessage}`)
     } finally {
       setProcessingAction(null)
     }
@@ -745,29 +640,55 @@ export function FilesManager() {
 
       if (response.ok) {
         const result = await response.json()
-        alert(`공유 링크가 생성되었습니다: ${window.location.origin}/share/${result.shortCode}`)
+        if (result.success && result.share?.shortCode) {
+          const shareUrl = `${window.location.origin}/share/${result.share.shortCode}`
+          
+          await navigator.clipboard.writeText(shareUrl)
+          
+          toast.success(
+            <div>
+              공유 링크가 생성되었습니다!
+              <a 
+                href={shareUrl} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="block mt-1 text-blue-400 hover:text-blue-300"
+              >
+                {shareUrl}
+              </a>
+            </div>,
+            {
+              style: {
+                background: '#1a1a1a',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.1)'
+              }
+            }
+          )
+          
         setShowShareDialog(false)
         setSelectedItems([])
+        } else {
+          throw new Error('공유 코드가 생성되지 않았습니다.')
+        }
       } else {
         throw new Error('공유 링크 생성 실패')
       }
     } catch (error) {
       console.error('공유 링크 생성 오류:', error)
-      alert('공유 링크 생성 중 오류가 발생했습니다.')
+      toast.error('공유 링크 생성 중 오류가 발생했습니다.')
     } finally {
       setProcessingAction(null)
     }
   }
 
-  // 파일 동기화 체크 함수
   const checkFileSync = async () => {
     try {
       setSyncLoading(true)
       const response = await fetch('/api/files/sync')
       if (response.ok) {
         const data: SyncResponse = await response.json()
-        setSyncData(data)
-        setSyncStats(data.stats)
+        setSyncResult(data)
       } else {
         throw new Error('동기화 체크 실패')
       }
@@ -779,13 +700,12 @@ export function FilesManager() {
     }
   }
 
-  // 누락된 파일들을 DB에서 정리
   const cleanupMissingFiles = async () => {
-    if (!syncData) return
+    if (!syncResult) return
     
-    const missingFileIds = syncData.files
-      .filter(f => f.status === 'missing')
-      .map(f => f.id)
+    const missingFileIds = syncResult.files
+      .filter((f: SyncStatus) => f.status === 'missing')
+      .map((f: SyncStatus) => f.id)
     
     if (missingFileIds.length === 0) {
       alert('정리할 누락된 파일이 없습니다.')
@@ -810,9 +730,7 @@ export function FilesManager() {
       if (response.ok) {
         const result = await response.json()
         alert(result.message)
-        // 동기화 데이터 다시 로드
         await checkFileSync()
-        // 파일 목록도 새로고침
         await loadFiles()
       } else {
         throw new Error('파일 정리 실패')
@@ -825,7 +743,6 @@ export function FilesManager() {
     }
   }
 
-  // 파일 상태에 따른 아이콘과 색상 반환
   const getFileStatusInfo = (status: string) => {
     switch (status) {
       case 'ok':
@@ -872,21 +789,389 @@ export function FilesManager() {
     }
   }
 
-  if (loading && files.length === 0) {
+  useEffect(() => {
+    if (!socket.isConnected) return
+    const handleDownloadStatus = (data: any) => {
+      setDownloadQueues(prev => ({
+        ...prev,
+        [data.id]: {
+          status: data.status,
+          progress: data.progress,
+          ...data.data
+        }
+      }))
+      if (data.status === 'completed') {
+        console.log('다운로드 완료 감지, 파일 목록 새로고침 실행:', data);
+        loadFiles();
+        loadStats();
+      }
+    }
+    const cleanup = socket.on('download:status', handleDownloadStatus)
+    return cleanup
+  }, [socket, loadFiles, loadStats])
+
+  const debouncedRefreshAllData = useCallback(debounce(async () => {
+    console.log('Debounced: 파일 목록 및 통계 새로고침 실행');
+    await loadFiles();
+    await loadStats();
+  }, 1000), [loadFiles, loadStats]);
+
+  useEffect(() => {
+    if (!socket.isConnected) return;
+    const handleFileChanged = (data: { path: string, type: string }) => {
+      console.log(`파일 시스템 변경 감지 (${data.type}): ${data.path}, 새로고침 예약`);
+      debouncedRefreshAllData();
+    };
+    const cleanup = socket.on('file:changed', handleFileChanged);
+    return cleanup;
+  }, [socket, debouncedRefreshAllData]);
+
+  useEffect(() => {
+    async function loadInitialDownloadQueues() {
+      try {
+        const response = await fetch("/api/youtube/queue");
+        if (response.ok) {
+          const data = await response.json();
+          
+          // data가 배열인지 확인
+          if (!Array.isArray(data)) {
+            console.warn('API 응답이 배열이 아닙니다:', data);
+            return;
+          }
+          
+          const initialQueues: Record<string, DownloadQueue> = {};
+          data.forEach((queue: any) => {
+            initialQueues[queue.id] = {
+              id: queue.id,
+              status: queue.status,
+              progress: queue.progress,
+              type: queue.type,
+              url: queue.originalUrl,
+              title: queue.options?.title || queue.originalUrl,
+              playlistTitle: queue.options?.playlistTitle,
+              playlistItemId: queue.options?.playlistItemId,
+              playlistTotalItems: queue.options?.playlistTotalItems,
+            };
+          });
+          setDownloadQueues(initialQueues);
+        } else {
+          console.warn('다운로드 큐 API 응답 실패:', response.status, response.statusText);
+        }
+      } catch (error) {
+        console.error("다운로드 큐 로드 실패:", error);
+      }
+    }
+    loadInitialDownloadQueues();
+  }, []);
+
+  function getGroupKeyFromQueue(queue: any): string | null {
+    try {
+      if (queue.options?.isMelonChart) {
+        const chartSize = queue.options.chartSize || 30
+        return `MELON_CHART_TOP${chartSize}`
+      }
+      
+      if (queue.type?.includes('PLAYLIST')) {
+        return `YOUTUBE_PLAYLIST_${queue.options?.playlistName || 'playlist'}`
+      }
+      
+      if (queue.type?.includes('MP3') || queue.type?.includes('VIDEO')) {
+        const date = new Date(queue.createdAt).toISOString().slice(0, 10).replace(/-/g, '')
+        return `YOUTUBE_SINGLE_${date}`
+      }
+      
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  function getGroupDownloadStatus(group: FileGroup) {
+    const groupKey = `${group.groupType}_${group.groupName}`
+    const queueData = downloadQueues[groupKey]
+    
+    if (!queueData) {
+      return { status: 'none', progress: 0 }
+    }
+    
+    if (queueData.status === 'processing') {
+      return { status: 'processing', progress: queueData.progress || 0 }
+    }
+    
+    if (queueData.status === 'completed') {
+      return { status: 'completed', progress: 100 }
+    }
+    
+    if (queueData.status === 'failed') {
+      return { status: 'failed', progress: 0 }
+    }
+    
+    return { status: 'none', progress: 0 }
+  }
+
+  const renderFileItem = (file: FileData) => (
+    <FileItem
+      key={file.id}
+      file={file}
+      isPlaying={playerState.currentFile?.id === file.id && playerState.isPlaying}
+      isSelected={selectedItems.includes(file.id)}
+      melonCoverCache={melonCoverCache}
+      processingAction={processingAction}
+      onToggleSelect={toggleItemSelection}
+      onTogglePlay={togglePlayFile}
+      onDownload={handleDownloadFile}
+      onDelete={handleDeleteFile}
+      highlightText={highlightText}
+      formatFileSize={formatFileSize}
+      formatDuration={formatDuration}
+      getFileIcon={getFileIcon}
+      getFileBadgeColor={getFileBadgeColor}
+    />
+  );
+
+  const playAllFiles = () => {
+    const audioFiles = files.filter(f => f.fileType.toLowerCase().includes('mp3'));
+    if (audioFiles.length > 0) {
+      loadPlaylist(audioFiles);
+      play();
+    }
+  };
+
+  const playGroupFiles = (groupFilesInput: FileData[]) => {
+    const audioFiles = groupFilesInput.filter(f => f.fileType.toLowerCase().includes('mp3'));
+    if (audioFiles.length > 0) {
+      loadPlaylist(audioFiles);
+      play();
+    }
+  };
+
+  const togglePlayFile = (file: FileData, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (file.fileType.toLowerCase().includes('mp3')) {
+      if (playerState.currentFile?.id === file.id) {
+        togglePlay();
+      } else {
+        loadFile(file);
+      }
+    }
+  };
+
+  const startEditingGroup = (groupKey: string, groupName: string) => {
+    setEditingGroup(groupKey);
+    setEditingGroupName(groupName);
+  };
+
+  const cancelEditingGroup = () => {
+    setEditingGroup(null);
+    setEditingGroupName("");
+  };
+
+  const saveGroupName = async (groupKey: string, newName: string) => {
+    try {
+      setProcessingAction(`rename-group-${groupKey}`);
+      const response = await fetch('/api/files/rename-group', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          groupKey,
+          newName
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('그룹 이름 변경에 실패했습니다.');
+      }
+
+      await loadFiles();
+      setEditingGroup(null);
+      setEditingGroupName("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '그룹 이름 변경 중 오류가 발생했습니다.');
+    } finally {
+      setProcessingAction(null);
+    }
+  };
+
+  const handleGroupDownload = async (groupFiles: FileData[], mode: 'zip' | 'sequential' = 'zip') => {
+    const fileIds = groupFiles.map(f => f.id);
+    if (mode === 'sequential') {
+      await handleSequentialDownload(fileIds);
+    } else {
+      try {
+        setProcessingAction('group-download');
+        const response = await fetch('/api/files/bulk', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            action: 'download',
+            fileIds
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('그룹 다운로드에 실패했습니다.');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let fileName = 'group_files.zip';
+        if (contentDisposition) {
+          const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+          if (filenameStarMatch) {
+            fileName = decodeURIComponent(filenameStarMatch[1]);
+          } else {
+            const filenameMatch = contentDisposition.match(/filename="?([^"]*)"?/);
+            if (filenameMatch) {
+              fileName = filenameMatch[1];
+            }
+          }
+        }
+        
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '그룹 다운로드 중 오류가 발생했습니다.');
+      } finally {
+        setProcessingAction(null);
+      }
+    }
+  };
+
+  const handleGroupDelete = async (groupFiles: FileData[]) => {
+    const fileIds = groupFiles.map(f => f.id)
+    if (!confirm(`이 그룹의 파일 ${fileIds.length}개를 모두 삭제하시겠습니까?`)) return
+
+    try {
+      setProcessingAction('group-delete')
+      const response = await fetch('/api/files/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'delete',
+          fileIds
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || '그룹 삭제에 실패했습니다.')
+      }
+
+      const result = await response.json()
+      if (result.success) {
+        await loadFiles()
+        await loadStats()
+        setSelectedItems(selectedItems.filter(id => !fileIds.includes(id)))
+        
+        const successCount = result.deletedCount
+        const failedCount = result.requestedCount - result.deletedCount
+        
+        let message = `${successCount}개 파일이 삭제되었습니다.`
+        if (failedCount > 0) {
+          message += `\n${failedCount}개 파일 삭제 실패`
+          if (result.deletionResults) {
+            const failedResults = result.deletionResults.filter((r: string) => r.includes('실패'))
+            message += '\n\n실패한 파일:\n' + failedResults.join('\n')
+          }
+        }
+        
+        alert(message)
+      } else {
+        throw new Error(result.error || '파일 삭제 중 오류가 발생했습니다.')
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '그룹 삭제 중 오류가 발생했습니다.'
+      setError(errorMessage)
+      alert(`파일 삭제 실패: ${errorMessage}`)
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  const toggleAllGroups = () => {
+    setAllGroupsExpanded(prevAllExpanded => {
+      const newAllExpandedState = !prevAllExpanded;
+      setIsExpanded(prevExpandedRecords => {
+        const newExpandedRecords: Record<string, boolean> = {};
+        fileGroups.forEach(group => {
+          const groupKey = `${group.groupType}_${group.groupName}`;
+          newExpandedRecords[groupKey] = newAllExpandedState;
+        });
+        return newExpandedRecords;
+      });
+      return newAllExpandedState;
+    });
+  };
+
+  const toggleGroupExpansion = (groupKey: string) => {
+    setIsExpanded(prev => ({ ...prev, [groupKey]: !prev[groupKey] }))
+  }
+  
+  const renderSelectedFilesActions = () => {
+    if (selectedItems.length === 0) return null
     return (
-      <div className="flex-1 bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8 overflow-y-auto">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin mr-2" />
-          <span>파일 목록을 불러오는 중...</span>
-        </div>
+      <div className="sticky top-16 z-20 bg-background/80 backdrop-blur-sm p-4 rounded-md shadow mb-4 flex flex-wrap gap-2 items-center">
+        <p className="text-sm font-medium mr-2">
+          {selectedItems.length}개 파일 선택됨
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handleBulkDownload(downloadMode)}
+          disabled={processingAction === 'bulkDownload'}
+        >
+          {processingAction === 'bulkDownload' ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="mr-2 h-4 w-4" />
+          )}
+          선택 다운로드 ({downloadMode === 'zip' ? 'ZIP' : '개별'})
+        </Button>
+        <Select value={downloadMode} onValueChange={(value: 'zip' | 'sequential') => setDownloadMode(value)}>
+          <SelectTrigger className="w-[100px] h-9 text-xs">
+            <SelectValue placeholder="다운로드 방식" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="zip">ZIP 압축</SelectItem>
+            <SelectItem value="sequential">개별 파일</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={handleBulkDelete}
+          disabled={processingAction === 'bulkDelete'}
+        >
+          {processingAction === 'bulkDelete' ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="mr-2 h-4 w-4" />
+          )}
+          선택 삭제
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setShowShareDialog(true)}>
+          <Share2 className="mr-2 h-4 w-4" />
+          공유
+        </Button>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8 overflow-y-auto">
-      <div className="mb-6">
-        {/* 브레드크럼 네비게이션 */}
+    <div className="space-y-6 p-4 md:p-6">
         <Breadcrumb className="mb-4">
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -897,7 +1182,6 @@ export function FilesManager() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        {/* 에러 표시 */}
         {error && (
           <div className="mb-4 p-4 bg-red-900/50 border border-red-600 rounded-lg">
             <p className="text-red-200">{error}</p>
@@ -911,7 +1195,7 @@ export function FilesManager() {
               variant="outline"
               size="sm"
               className="ml-4 border-white/20 hover:bg-white/10"
-              onClick={handleRefresh}
+            onClick={loadFiles}
               disabled={loading}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -920,429 +1204,49 @@ export function FilesManager() {
               variant="outline"
               size="sm"
               className="ml-2 border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10"
-              onClick={() => setShowSyncPanel(!showSyncPanel)}
+            onClick={() => setShowFileSyncDialog(!showFileSyncDialog)}
               disabled={loading}
             >
               <Database className="h-4 w-4" />
             </Button>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {/* 뷰 모드 토글 */}
-            <div className="flex bg-white/10 rounded-lg p-1">
-              <Button
-                size="sm"
-                variant={viewMode === 'list' ? 'default' : 'ghost'}
-                className={`px-3 ${viewMode === 'list' ? 'bg-white text-black' : 'text-white hover:bg-white/20'}`}
-                onClick={() => setViewMode('list')}
-              >
-                <List className="w-4 h-4 mr-1" />
-                목록
-              </Button>
-              <Button
-                size="sm"
-                variant={viewMode === 'groups' ? 'default' : 'ghost'}
-                className={`px-3 ${viewMode === 'groups' ? 'bg-white text-black' : 'text-white hover:bg-white/20'}`}
-                onClick={() => setViewMode('groups')}
-              >
-                <Grid3X3 className="w-4 h-4 mr-1" />
-                그룹
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={toggleAllGroups} title={allGroupsExpanded ? "모든 그룹 접기" : "모든 그룹 펼치기"}>
+            {allGroupsExpanded ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />}
               </Button>
             </div>
-            
-            {/* 전체 선택 버튼은 항상 표시 */}
-            <Button 
-              className="bg-purple-600 hover:bg-purple-700" 
-              onClick={toggleSelectAll}
-              disabled={processingAction !== null || files.length === 0}
-            >
-              {selectedItems.length === files.length && files.length > 0 ? "전체 선택 해제" : "전체 선택"}
-            </Button>
-            
-            {selectedItems.length > 0 ? (
-              <>
-                <Button
-                  variant="outline"
-                  className="border-white/20 text-white hover:bg-white/10"
-                  onClick={() => setSelectedItems([])}
-                  disabled={processingAction !== null}
-                >
-                  선택 취소
-                </Button>
-                <Button 
-                  className="bg-blue-600 hover:bg-blue-700"
-                  onClick={handleBulkDownload}
-                  disabled={processingAction !== null}
-                >
-                  {processingAction === 'bulk-download' ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4 mr-2" />
-                  )}
-                  다운로드 ({selectedItems.length})
-                </Button>
-                <Button 
-                  className="bg-red-600 hover:bg-red-700"
-                  onClick={handleBulkDelete}
-                  disabled={processingAction !== null}
-                >
-                  {processingAction === 'bulk-delete' ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-4 h-4 mr-2" />
-                  )}
-                  삭제 ({selectedItems.length})
-                </Button>
-                <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
-                  <DialogTrigger asChild>
-                    <Button 
-                      className="bg-yellow-600 hover:bg-yellow-700"
-                      disabled={processingAction !== null}
-                    >
-                      <Share2 className="w-4 h-4 mr-2" />
-                      공유 링크 생성
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-gray-900 border-gray-800 text-white">
-                    <DialogHeader>
-                      <DialogTitle>공유 링크 생성</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <p className="text-sm text-gray-400 mb-4">
-                          선택한 {selectedItems.length}개 파일을 공유할 링크를 생성합니다.
-                        </p>
                       </div>
 
-                      <div>
-                        <Label htmlFor="expiry">만료 시간</Label>
-                        <Select 
-                          value={shareFormData.expiresIn?.toString() || 'null'} 
-                          onValueChange={(value) => setShareFormData(prev => ({
-                            ...prev,
-                            expiresIn: value === 'null' ? null : parseInt(value)
-                          }))}
-                        >
-                          <SelectTrigger className="bg-white/10 border-white/20 text-white">
-                            <SelectValue placeholder="만료일 선택" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-gray-800 border-gray-700 text-white">
-                            <SelectItem value="24">1일</SelectItem>
-                            <SelectItem value="168">7일</SelectItem>
-                            <SelectItem value="720">30일</SelectItem>
-                            <SelectItem value="2160">90일</SelectItem>
-                            <SelectItem value="null">무기한</SelectItem>
-                          </SelectContent>
-                        </Select>
+      {renderSelectedFilesActions()}
+
+      {loading && (
+        <div className="flex justify-center items-center min-h-[200px]">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
                       </div>
-
-                      <div>
-                        <Label htmlFor="maxDownloads">최대 다운로드 횟수</Label>
-                        <Input
-                          type="number"
-                          placeholder="제한 없음"
-                          value={shareFormData.maxDownloads || ''}
-                          onChange={(e) => setShareFormData(prev => ({
-                            ...prev,
-                            maxDownloads: e.target.value ? parseInt(e.target.value) : null
-                          }))}
-                          className="bg-white/10 border-white/20 text-white"
-                        />
-                      </div>
-
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          className="border-white/20 text-white hover:bg-white/10"
-                          onClick={() => setShowShareDialog(false)}
-                          disabled={processingAction !== null}
-                        >
-                          취소
-                        </Button>
-                        <Button 
-                          className="bg-purple-600 hover:bg-purple-700"
-                          onClick={handleCreateShare}
-                          disabled={processingAction !== null}
-                        >
-                          {processingAction === 'share' ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          ) : (
-                            <Share2 className="w-4 h-4 mr-2" />
-                          )}
-                          공유 링크 생성
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </>
-            ) : (
-              <>
-                <Button 
-                  className="bg-green-600 hover:bg-green-700"
-                  onClick={playAllFiles}
-                  disabled={processingAction !== null || files.length === 0}
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  전체 재생
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="relative col-span-1 md:col-span-2">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="파일 검색..."
-              className="bg-white/10 border-white/20 text-white pl-10"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-2">
-            <Select value={`${sortBy}-${sortOrder}`} onValueChange={(value) => {
-              const [field, order] = value.split('-')
-              setSortBy(field)
-              setSortOrder(order)
-            }}>
-              <SelectTrigger className="bg-white/10 border-white/20 text-white">
-                <div className="flex items-center">
-                  <SortDesc className="w-4 h-4 mr-2" />
-                  <SelectValue placeholder="정렬 기준" />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="createdAt-desc">최신순</SelectItem>
-                <SelectItem value="createdAt-asc">오래된순</SelectItem>
-                <SelectItem value="title-asc">제목순 (가나다)</SelectItem>
-                <SelectItem value="title-desc">제목순 (하바타)</SelectItem>
-                <SelectItem value="artist-asc">아티스트순 (가나다)</SelectItem>
-                <SelectItem value="fileSize-desc">크기순 (큰 것부터)</SelectItem>
-                <SelectItem value="fileSize-asc">크기순 (작은 것부터)</SelectItem>
-                <SelectItem value="downloads-desc">인기순</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filterType} onValueChange={setFilterType}>
-              <SelectTrigger className="bg-white/10 border-white/20 text-white">
-                <div className="flex items-center">
-                  <Filter className="w-4 h-4 mr-2" />
-                  <SelectValue placeholder="파일 유형" />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">모든 파일</SelectItem>
-                <SelectItem value="mp3">MP3</SelectItem>
-                <SelectItem value="mp4">비디오</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {stats && (
-          <div className="bg-white/5 rounded-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
+      )}
+      {error && (
+        <Card className="bg-destructive/10 border-destructive text-destructive-foreground">
+          <CardContent className="p-4 flex items-center">
+            <AlertTriangle className="h-6 w-6 mr-3" />
             <div>
-              <p className="text-sm text-gray-400">저장 공간</p>
-              <p className="font-medium">
-                {formatFileSize(stats.totalStorageUsed)} 사용 중 ({formatFileSize(stats.storageLimit)} 중)
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                총 {stats.totalFiles}개 파일
-              </p>
+              <p className="font-semibold">오류 발생</p>
+              <p className="text-sm">{error}</p>
             </div>
-            <div className="w-full md:w-1/2 flex items-center gap-4">
-              <Progress value={stats.storageUsagePercentage} className="h-2 flex-1" />
-              <div className="relative w-16 h-16 flex-shrink-0">
-                <div className="absolute inset-0 rounded-full bg-white/10"></div>
-                <svg className="w-16 h-16 transform -rotate-90">
-                  <circle
-                    cx="32"
-                    cy="32"
-                    r="28"
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    fill="transparent"
-                    className="text-purple-600"
-                    strokeDasharray={`${stats.storageUsagePercentage * 1.76} 176`}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center text-sm font-medium">
-                  {stats.storageUsagePercentage.toFixed(0)}%
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 파일 동기화 패널 */}
-      {showSyncPanel && (
-        <Card className="bg-yellow-900/20 border-yellow-500/30 mb-6">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center">
-                <HardDrive className="h-5 w-5 text-yellow-400 mr-2" />
-                <h3 className="text-lg font-semibold text-yellow-400">파일 동기화 상태</h3>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  onClick={checkFileSync}
-                  disabled={syncLoading}
-                  size="sm"
-                  className="bg-yellow-600 hover:bg-yellow-700"
-                >
-                  {syncLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                  )}
-                  동기화 체크
-                </Button>
-                {syncData && syncStats && syncStats.missing > 0 && (
-                  <Button
-                    onClick={cleanupMissingFiles}
-                    disabled={syncLoading}
-                    size="sm"
-                    variant="destructive"
-                  >
-                    누락된 파일 정리 ({syncStats.missing})
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {syncData && syncStats ? (
-              <div className="space-y-4">
-                {/* 통계 요약 */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  <div className="bg-green-900/30 border border-green-500/30 rounded-lg p-3 text-center">
-                    <div className="flex items-center justify-center mb-1">
-                      <CheckCircle className="h-4 w-4 text-green-400 mr-1" />
-                      <span className="text-sm text-green-400">정상</span>
-                    </div>
-                    <div className="text-lg font-bold text-white">{syncStats.ok}</div>
-                  </div>
-                  <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-3 text-center">
-                    <div className="flex items-center justify-center mb-1">
-                      <XCircle className="h-4 w-4 text-red-400 mr-1" />
-                      <span className="text-sm text-red-400">파일 없음</span>
-                    </div>
-                    <div className="text-lg font-bold text-white">{syncStats.missing}</div>
-                  </div>
-                  <div className="bg-yellow-900/30 border border-yellow-500/30 rounded-lg p-3 text-center">
-                    <div className="flex items-center justify-center mb-1">
-                      <AlertTriangle className="h-4 w-4 text-yellow-400 mr-1" />
-                      <span className="text-sm text-yellow-400">크기 불일치</span>
-                    </div>
-                    <div className="text-lg font-bold text-white">{syncStats.sizeMismatch}</div>
-                  </div>
-                  <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-3 text-center">
-                    <div className="flex items-center justify-center mb-1">
-                      <XCircle className="h-4 w-4 text-red-400 mr-1" />
-                      <span className="text-sm text-red-400">오류</span>
-                    </div>
-                    <div className="text-lg font-bold text-white">{syncStats.error}</div>
-                  </div>
-                  <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-3 text-center">
-                    <div className="flex items-center justify-center mb-1">
-                      <Database className="h-4 w-4 text-blue-400 mr-1" />
-                      <span className="text-sm text-blue-400">총 파일</span>
-                    </div>
-                    <div className="text-lg font-bold text-white">{syncStats.total}</div>
-                  </div>
-                </div>
-
-                {/* Orphaned 파일들 */}
-                {syncData.orphanedFiles.length > 0 && (
-                  <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4">
-                    <h4 className="font-semibold text-orange-400 mb-2 flex items-center">
-                      <AlertTriangle className="h-4 w-4 mr-2" />
-                      DB에 없는 파일들 ({syncData.orphanedFiles.length}개)
-                    </h4>
-                    <div className="max-h-32 overflow-y-auto space-y-1">
-                      {syncData.orphanedFiles.map((filePath, index) => (
-                        <div key={index} className="text-sm text-gray-300 bg-black/20 p-2 rounded">
-                          {filePath.replace(process.cwd(), '.')}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 문제가 있는 파일들 */}
-                {syncData.files.some(f => f.status !== 'ok') && (
-                  <div className="space-y-2">
-                    <h4 className="font-semibold text-red-400 mb-2">문제가 있는 파일들</h4>
-                    <div className="max-h-48 overflow-y-auto space-y-2">
-                      {syncData.files
-                        .filter(f => f.status !== 'ok')
-                        .map((file) => {
-                          const statusInfo = getFileStatusInfo(file.status)
-                          const StatusIcon = statusInfo.icon
-                          return (
-                            <div key={file.id} className="bg-black/20 p-3 rounded-lg flex items-center justify-between">
-                              <div className="flex items-center flex-1 min-w-0">
-                                <StatusIcon className={`h-4 w-4 mr-3 ${statusInfo.color}`} />
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-medium truncate">{file.title}</p>
-                                  <p className="text-sm text-gray-400 truncate">{file.path}</p>
-                                  {file.status === 'size_mismatch' && (
-                                    <p className="text-xs text-yellow-400">
-                                      DB: {formatFileSize(file.dbSize)} ↔ 실제: {formatFileSize(file.actualSize)}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                              <Badge className={statusInfo.color.replace('text-', 'bg-').replace('-500', '-900/50 border-').replace('-500', '-500/50')}>
-                                {statusInfo.text}
-                              </Badge>
-                            </div>
-                          )
-                        })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-gray-400 mb-4">파일 동기화 상태를 확인하려면 버튼을 클릭하세요.</p>
-                <Button
-                  onClick={checkFileSync}
-                  disabled={syncLoading}
-                  className="bg-yellow-600 hover:bg-yellow-700"
-                >
-                  {syncLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <HardDrive className="w-4 h-4 mr-2" />
-                  )}
-                  동기화 체크 시작
-                </Button>
-              </div>
-            )}
           </CardContent>
         </Card>
       )}
 
-      {/* 파일 목록 표시 */}
-      {files.length === 0 && !loading ? (
-        <div className="text-center py-12 bg-white/5 rounded-lg">
-          <p className="text-gray-400">파일을 찾을 수 없습니다.</p>
-          {searchQuery && <p className="text-sm text-gray-500 mt-2">검색어: &quot;{searchQuery}&quot;</p>}
-        </div>
-      ) : viewMode === 'groups' ? (
-        <div className="space-y-4">
-          {fileGroups.map((group) => {
+      {!loading && !error && (
+        <>
+          {viewMode === 'groups' && fileGroups.map((group, groupIndex) => {
             const groupKey = `${group.groupType}_${group.groupName}`
-            const isExpanded = expandedGroups.has(groupKey)
-            // const groupFileIds = group.files.map(f => f.id)
+            const currentGroupIsExpanded = isExpanded[groupKey]
             const selectedInGroup = group.files.filter(f => selectedItems.includes(f.id)).length
             const allGroupSelected = selectedInGroup === group.files.length && group.files.length > 0
             
             return (
               <Card key={groupKey} className="bg-white/5 border-white/10">
                 <CardContent className="p-0">
-                  {/* 그룹 헤더 */}
                   <div className="p-4 border-b border-white/10">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3">
@@ -1352,7 +1256,7 @@ export function FilesManager() {
                           className="p-1 h-6 w-6"
                           onClick={() => toggleGroupExpansion(groupKey)}
                         >
-                          {isExpanded ? (
+                          {currentGroupIsExpanded ? (
                             <ChevronDown className="h-4 w-4" />
                           ) : (
                             <ChevronRight className="h-4 w-4" />
@@ -1368,7 +1272,12 @@ export function FilesManager() {
                           <FolderOpen className="h-5 w-5 text-blue-400" />
                         </div>
                         <div className="flex-1">
-                          <h3 className="font-semibold text-lg">{getGroupTypeDisplayName(group.groupType)}</h3>
+                          <div className="flex items-center space-x-2">
+                            <h3 className="font-semibold text-lg">{getGroupDisplayName(group)}</h3>
+                            <Badge variant="secondary" className="bg-blue-600/20 text-blue-300 text-xs">
+                              {group.totalFiles}개 파일
+                            </Badge>
+                          </div>
                           <div className="flex items-center space-x-2">
                             {editingGroup === groupKey ? (
                               <div className="flex items-center space-x-1">
@@ -1416,15 +1325,25 @@ export function FilesManager() {
                                 </Button>
                               </div>
                             )}
-                            <span className="text-xs text-gray-500">
-                              • {group.files.length}개 파일 • {formatDate(group.createdAt)}
-                              {selectedInGroup > 0 && ` • ${selectedInGroup}개 선택됨`}
+                            {(() => {
+                              const dstatus = getGroupDownloadStatus(group)
+                              if (dstatus.status === 'processing') {
+                                return (
+                                  <span className="flex items-center text-xs text-blue-500">
+                                    <Progress value={dstatus.progress} className="w-16 h-2 mr-2" />
+                                    진행중 {dstatus.progress}%
                             </span>
+                                )
+                              }
+                              if (dstatus.status === 'completed') {
+                                return <span className="text-xs text-green-500 ml-2">다운로드 완료</span>
+                              }
+                              return null
+                            })()}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
-                        {/* 그룹 액션 버튼들 */}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -1439,374 +1358,223 @@ export function FilesManager() {
                           size="sm"
                           variant="ghost"
                           className="text-blue-400 hover:bg-blue-900/20"
-                          onClick={() => handleGroupDownload(group.files)}
+                          onClick={() => handleGroupDownload(group.files, 'zip')}
                           disabled={processingAction === 'group-download'}
                         >
-                          {processingAction === 'group-download' ? (
+                          {(processingAction === 'group-download' && downloadMode === 'zip') ? (
                             <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                           ) : (
                             <Download className="h-4 w-4 mr-1" />
                           )}
-                          다운로드
+                          압축
                         </Button>
+                                <Button
+                          size="sm"
+                                  variant="ghost"
+                          className="text-indigo-400 hover:bg-indigo-900/20"
+                          onClick={() => handleGroupDownload(group.files, 'sequential')}
+                          disabled={processingAction === 'sequential-download'}
+                                >
+                          {processingAction === 'sequential-download' ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                  ) : (
+                            <Download className="h-4 w-4 mr-1" />
+                                  )}
+                          순차
+                                </Button>
+                                <Button
+                          size="sm"
+                                  variant="ghost"
+                          className="text-red-400 hover:bg-red-900/20"
+                          onClick={() => handleGroupDelete(group.files)}
+                          disabled={processingAction === 'group-delete'}
+                        >
+                          {processingAction === 'group-delete' ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4 mr-1" />
+                          )}
+                          삭제
+                              </Button>
                         <Badge variant="secondary" className="bg-white/10">
                           {formatFileSize(group.files.reduce((total, file) => total + file.fileSize, 0))}
                         </Badge>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* 그룹 파일 목록 */}
-                  {isExpanded && (
-                    <div className="space-y-1 p-2">
-                      {group.files.map((file) => (
-                        <div key={file.id} className="bg-white/5 rounded-lg p-3 hover:bg-white/10 transition-colors">
-                          <div className="flex items-center">
-                            <div className="mr-3" onClick={(e) => toggleItemSelection(file.id, e)}>
-                              <input
-                                type="checkbox"
-                                checked={selectedItems.includes(file.id)}
-                                onChange={(e) => e.stopPropagation()}
-                                className="h-4 w-4 rounded border-gray-500 bg-transparent"
-                              />
-                            </div>
-                            <div className="relative">
-                              <div className="w-12 h-12 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
-                                {file.fileType.toLowerCase().includes('mp3') ? (
-                                  <>
-                                    {/* 멜론 차트 파일인 경우 멜론 앨범 커버 우선 표시 */}
-                                    {file.groupType === 'melon_chart' && file.title && file.artist && melonCoverCache[`${file.artist}_${file.title}`] ? (
-                                      <img 
-                                        src={melonCoverCache[`${file.artist}_${file.title}`]}
-                                        alt={`${file.title} 앨범 커버`}
-                                        className="w-full h-full object-cover rounded"
-                                        onError={(e) => {
-                                          const target = e.target as HTMLImageElement;
-                                          target.style.display = 'none';
-                                          const parent = target.parentElement;
-                                          if (parent) {
-                                            const thumbnailImg = parent.querySelector('.thumbnail-img');
-                                            if (thumbnailImg) {
-                                              (thumbnailImg as HTMLElement).style.display = 'block';
-                                            } else {
-                                              const iconElement = parent.querySelector('.fallback-icon');
-                                              if (iconElement) {
-                                                iconElement.classList.remove('hidden');
-                                              }
-                                            }
-                                          }
-                                        }}
-                                      />
-                                    ) : null}
-                                    {/* 기존 썸네일 이미지 (멜론 커버가 없을 때만 표시) */}
-                                    {file.thumbnailPath && !(file.groupType === 'melon_chart' && melonCoverCache[`${file.artist}_${file.title}`]) ? (
-                                      <img 
-                                        src={`/api/files/${file.id}/thumbnail`}
-                                        alt={`${file.title} 앨범 커버`}
-                                        className="thumbnail-img w-full h-full object-cover rounded"
-                                        onError={(e) => {
-                                          const target = e.target as HTMLImageElement;
-                                          target.style.display = 'none';
-                                          const parent = target.parentElement;
-                                          if (parent) {
-                                            const iconElement = parent.querySelector('.fallback-icon');
-                                            if (iconElement) {
-                                              iconElement.classList.remove('hidden');
-                                            }
-                                          }
-                                        }}
-                                      />
-                                    ) : null}
-                                  </>
-                                ) : null}
-                                <div className={`fallback-icon ${(file.thumbnailPath || (file.groupType === 'melon_chart' && melonCoverCache[`${file.artist}_${file.title}`])) && file.fileType.toLowerCase().includes('mp3') ? 'hidden' : ''}`}>
-                                  {getFileIcon(file.fileType)}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0 mr-2">
-                              <div className="flex items-center space-x-2">
-                                {file.rank && (
-                                  <Badge className="bg-yellow-600 text-xs px-1">
-                                    #{file.rank}
-                                  </Badge>
-                                )}
-                                <p className="font-medium truncate">{highlightText(file.title)}</p>
-                              </div>
-                              <p className="text-sm text-gray-400">
-                                {highlightText(file.artist || '알 수 없는 아티스트')} • {formatDuration(file.duration)}
-                              </p>
-                              <div className="flex items-center text-xs text-gray-500 mt-1">
-                                <Badge className={`mr-2 ${getFileBadgeColor(file.fileType)} text-xs`}>
-                                  {file.fileType.toUpperCase()}
-                                </Badge>
-                                <span>{formatFileSize(file.fileSize)}</span>
-                                <span className="mx-1">•</span>
-                                <span>다운로드 {file.downloads}회</span>
-                              </div>
-                            </div>
-                            <div className="flex space-x-1">
-                              {file.fileType.toLowerCase().includes('mp3') && (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-10 w-10 md:h-8 md:w-8"
-                                  onClick={(e) => togglePlayFile(file, e)}
-                                >
-                                  {playerState.currentFile?.id === file.id && playerState.isPlaying ? (
-                                    <Pause className="h-5 w-5 md:h-4 md:w-4 text-green-400" fill="currentColor" />
-                                  ) : (
-                                    <Play className="h-5 w-5 md:h-4 md:w-4" />
-                                  )}
-                                </Button>
-                              )}
-                              {!file.fileType.toLowerCase().includes('mp3') && file.sourceUrl && (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-10 w-10 md:h-8 md:w-8 text-blue-400 hover:bg-blue-900/20"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    window.open(file.sourceUrl!, '_blank')
-                                  }}
-                                  title="원본 링크 열기"
-                                >
-                                  <ExternalLink className="h-5 w-5 md:h-4 md:w-4" />
-                                </Button>
-                              )}
-                              <Button 
-                                size="icon" 
-                                variant="ghost" 
-                                className="h-10 w-10 md:h-8 md:w-8" 
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDownloadFile(file.id)
-                                }}
-                                disabled={processingAction === `download-${file.id}`}
-                              >
-                                {processingAction === `download-${file.id}` ? (
-                                  <Loader2 className="h-5 w-5 md:h-4 md:w-4 animate-spin" />
-                                ) : (
-                                  <Download className="h-5 w-5 md:h-4 md:w-4" />
-                                )}
-                              </Button>
-                              <Button 
-                                size="icon" 
-                                variant="ghost" 
-                                className="h-10 w-10 md:h-8 md:w-8 text-red-400 hover:bg-red-900/20" 
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDeleteFile(file.id)
-                                }}
-                                disabled={processingAction === `delete-${file.id}`}
-                              >
-                                {processingAction === `delete-${file.id}` ? (
-                                  <Loader2 className="h-5 w-5 md:h-4 md:w-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-5 w-5 md:h-4 md:w-4" />
-                                )}
-                              </Button>
+                        <Badge variant="secondary" className="bg-gray-600/30 text-gray-300">
+                          {group.totalFiles}개
+                        </Badge>
                             </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {files.map((file) => (
-            <Card key={file.id} className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors">
-              <CardContent className="p-3">
-                <div className="flex items-center">
-                  <div className="mr-3" onClick={(e) => toggleItemSelection(file.id, e)}>
-                    <input
-                      type="checkbox"
-                      checked={selectedItems.includes(file.id)}
-                      onChange={(e) => e.stopPropagation()}
-                      className="h-4 w-4 rounded border-gray-500 bg-transparent"
-                    />
-                  </div>
-                  <div className="relative">
-                    <div className="w-12 h-12 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
-                      {file.fileType.toLowerCase().includes('mp3') ? (
-                        <>
-                          {/* 멜론 차트 파일인 경우 멜론 앨범 커버 우선 표시 */}
-                          {file.groupType === 'melon_chart' && file.title && file.artist && melonCoverCache[`${file.artist}_${file.title}`] ? (
-                            <img 
-                              src={melonCoverCache[`${file.artist}_${file.title}`]}
-                              alt={`${file.title} 앨범 커버`}
-                              className="w-full h-full object-cover rounded"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                                const parent = target.parentElement;
-                                if (parent) {
-                                  const thumbnailImg = parent.querySelector('.thumbnail-img');
-                                  if (thumbnailImg) {
-                                    (thumbnailImg as HTMLElement).style.display = 'block';
-                                  } else {
-                                    const iconElement = parent.querySelector('.fallback-icon');
-                                    if (iconElement) {
-                                      iconElement.classList.remove('hidden');
-                                    }
-                                  }
-                                }
-                              }}
-                            />
-                          ) : null}
-                          {/* 기존 썸네일 이미지 (멜론 커버가 없을 때만 표시) */}
-                          {file.thumbnailPath && !(file.groupType === 'melon_chart' && melonCoverCache[`${file.artist}_${file.title}`]) ? (
-                            <img 
-                              src={`/api/files/${file.id}/thumbnail`}
-                              alt={`${file.title} 앨범 커버`}
-                              className="thumbnail-img w-full h-full object-cover rounded"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                                const parent = target.parentElement;
-                                if (parent) {
-                                  const iconElement = parent.querySelector('.fallback-icon');
-                                  if (iconElement) {
-                                    iconElement.classList.remove('hidden');
-                                  }
-                                }
-                              }}
-                            />
-                          ) : null}
-                        </>
-                      ) : null}
-                      <div className={`fallback-icon ${(file.thumbnailPath || (file.groupType === 'melon_chart' && melonCoverCache[`${file.artist}_${file.title}`])) && file.fileType.toLowerCase().includes('mp3') ? 'hidden' : ''}`}>
-                        {getFileIcon(file.fileType)}
+                  
+                  {currentGroupIsExpanded && (
+                    (() => {
+                      console.log(`[${groupKey}] Rendering group content. melonRankFilter:`, melonRankFilter[groupKey], 'Original group.files count:', group.files.length);
+
+                      let filesToDisplay = [...group.files];
+                      
+                      if (group.groupType === 'melon_chart' && melonRankFilter[groupKey]) {
+                        console.log(`[${groupKey}] Applying melon chart filter. Rank:`, melonRankFilter[groupKey]);
+                        const rankFilterValue = melonRankFilter[groupKey];
+                        if (rankFilterValue) {
+                            filesToDisplay = filesToDisplay.filter(f => f.rank && f.rank <= rankFilterValue);
+                        }
+                      }
+                      
+                      console.log(`[${groupKey}] Files to display count after potential melon filter:`, filesToDisplay.length);
+
+                      if (filesToDisplay.length === 0) {
+                        console.log(`[${groupKey}] No files to display.`);
+                        return (
+                          <div className="space-y-1 p-2">
+                            <div className="text-center py-4 text-gray-400">
+                              표시할 파일이 없습니다.
                       </div>
                     </div>
+                        );
+                      }
+
+                      const summary = group.groupType === 'melon_chart' && melonRankFilter[groupKey] ? (
+                        <div className="text-sm text-yellow-400 mb-2 px-2">
+                          TOP {melonRankFilter[groupKey]} ({filesToDisplay.length}곡)
                   </div>
-                  <div className="flex-1 min-w-0 mr-2">
-                    <div className="flex items-center space-x-2">
-                      {file.rank && (
-                        <Badge className="bg-yellow-600 text-xs px-1">
-                          #{file.rank}
-                        </Badge>
-                      )}
-                      <p className="font-medium truncate">{highlightText(file.title)}</p>
-                    </div>
-                    <p className="text-sm text-gray-400">
-                      {highlightText(file.artist || '알 수 없는 아티스트')} • {formatDuration(file.duration)}
-                    </p>
-                    <div className="flex items-center text-xs text-gray-500 mt-1">
-                      <Badge className={`mr-2 ${getFileBadgeColor(file.fileType)}`}>
-                        {file.fileType.toUpperCase()}
-                      </Badge>
-                      <span>{formatFileSize(file.fileSize)}</span>
-                      <span className="mx-1">•</span>
-                      <span>{formatDate(file.createdAt)}</span>
-                      <span className="mx-1">•</span>
-                      <span>다운로드 {file.downloads}회</span>
-                      {file.groupType && (
-                        <>
-                          <span className="mx-1">•</span>
-                          <span className="text-blue-400">{getGroupTypeDisplayName(file.groupType)}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex space-x-1">
-                    {file.fileType.toLowerCase().includes('mp3') && (
+                      ) : null;
+
+                      return (
+                        <div className="space-y-1 p-2">
+                          {group.groupType === 'melon_chart' && (
+                            <div className="flex items-center gap-2 mb-3 px-2">
+                              <span className="text-sm text-gray-400">순위 필터:</span>
+                              <div className="flex gap-1">
+                                {[30, 50, 100].map((rank) => {
+                                  const filesInRank = calculateFilesInRank(groupKey, rank);
+                                  return (
                       <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-10 w-10 md:h-8 md:w-8"
-                        onClick={(e) => togglePlayFile(file, e)}
-                      >
-                        {playerState.currentFile?.id === file.id && playerState.isPlaying ? (
-                          <Pause className="h-5 w-5 md:h-4 md:w-4 text-green-400" fill="currentColor" />
-                        ) : (
-                          <Play className="h-5 w-5 md:h-4 md:w-4" />
-                        )}
+                                      key={rank}
+                                      size="sm"
+                                      variant={melonRankFilter[groupKey] === rank ? 'default' : 'outline'}
+                                      className={`px-2 py-1 h-7 text-xs ${
+                                        melonRankFilter[groupKey] === rank
+                                          ? 'bg-yellow-600 hover:bg-yellow-700'
+                                          : 'border-yellow-600/50 text-yellow-400 hover:bg-yellow-600/20'
+                                      }`}
+                                      onClick={() => {
+                                        const newFilter = { ...melonRankFilter };
+                                        if (newFilter[groupKey] === rank) {
+                                          delete newFilter[groupKey];
+                                        } else {
+                                          newFilter[groupKey] = rank;
+                                        }
+                                        setMelonRankFilter(newFilter);
+                                      }}
+                                    >
+                                      TOP {rank} ({filesInRank})
                       </Button>
-                    )}
-                    {!file.fileType.toLowerCase().includes('mp3') && file.sourceUrl && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-10 w-10 md:h-8 md:w-8 text-blue-400 hover:bg-blue-900/20"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          window.open(file.sourceUrl!, '_blank')
-                        }}
-                        title="원본 링크 열기"
-                      >
-                        <ExternalLink className="h-5 w-5 md:h-4 md:w-4" />
-                      </Button>
-                    )}
-                    <Button 
-                      size="icon" 
-                      variant="ghost" 
-                      className="h-10 w-10 md:h-8 md:w-8" 
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDownloadFile(file.id)
-                      }}
-                      disabled={processingAction === `download-${file.id}`}
-                    >
-                      {processingAction === `download-${file.id}` ? (
-                        <Loader2 className="h-5 w-5 md:h-4 md:w-4 animate-spin" />
-                      ) : (
-                        <Download className="h-5 w-5 md:h-4 md:w-4" />
-                      )}
-                    </Button>
-                    <Button 
-                      size="icon" 
-                      variant="ghost" 
-                      className="h-10 w-10 md:h-8 md:w-8 text-red-400 hover:bg-red-900/20" 
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteFile(file.id)
-                      }}
-                      disabled={processingAction === `delete-${file.id}`}
-                    >
-                      {processingAction === `delete-${file.id}` ? (
-                        <Loader2 className="h-5 w-5 md:h-4 md:w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-5 w-5 md:h-4 md:w-4" />
-                      )}
-                    </Button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {summary}
+                          {filesToDisplay.map(file => (
+                            <div key={file.id} className="bg-white/5 rounded-lg p-3 hover:bg-white/10 transition-colors">
+                              {renderFileItem(file)}
                   </div>
+                          ))}
                 </div>
+                      );
+                    })()
+                  )}
               </CardContent>
             </Card>
-          ))}
-        </div>
+            )
+          })}
+        </>
       )}
       
-      {/* 페이지네이션 */}
-      {pagination && pagination.totalPages > 1 && (
-        <div className="mt-6 flex justify-center items-center gap-4">
-          <Button
-            variant="outline"
-            className="border-white/20 hover:bg-white/10"
-            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-            disabled={!pagination.hasPrev || loading}
-          >
-            이전
-          </Button>
-          <span className="text-sm text-gray-400">
-            {pagination.page} / {pagination.totalPages} 페이지
-          </span>
-          <Button
-            variant="outline"
-            className="border-white/20 hover:bg-white/10"
-            onClick={() => setCurrentPage(prev => prev + 1)}
-            disabled={!pagination.hasNext || loading}
-          >
-            다음
-          </Button>
-        </div>
-      )}
+      {/* 공유 대화상자 */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="bg-gray-900 border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">파일 공유</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="text-sm text-gray-300">
+              선택된 파일: <span className="font-semibold text-blue-400">{selectedItems.length}개</span>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="expiresIn" className="text-gray-300">만료 시간</Label>
+              <Select 
+                value={shareFormData.expiresIn?.toString() || "unlimited"}
+                onValueChange={(value) => 
+                  setShareFormData(prev => ({ 
+                    ...prev, 
+                    expiresIn: value === "unlimited" ? null : parseInt(value)
+                  }))
+                }
+              >
+                <SelectTrigger className="bg-gray-800 border-gray-600 text-white">
+                  <SelectValue placeholder="만료 시간 선택" />
+                </SelectTrigger>
+                <SelectContent className="bg-gray-800 border-gray-600">
+                  <SelectItem value="1">1시간</SelectItem>
+                  <SelectItem value="24">24시간</SelectItem>
+                  <SelectItem value="168">7일</SelectItem>
+                  <SelectItem value="720">30일</SelectItem>
+                  <SelectItem value="unlimited">무제한</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="maxDownloads" className="text-gray-300">최대 다운로드 횟수</Label>
+              <Input
+                id="maxDownloads"
+                type="number"
+                min="1"
+                placeholder="무제한 (비워두면 무제한)"
+                value={shareFormData.maxDownloads || ""}
+                onChange={(e) => 
+                  setShareFormData(prev => ({ 
+                    ...prev, 
+                    maxDownloads: e.target.value ? parseInt(e.target.value) : null 
+                  }))
+                }
+                className="bg-gray-800 border-gray-600 text-white placeholder-gray-400"
+              />
+            </div>
+            
+            <div className="flex justify-end gap-2 pt-4">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowShareDialog(false)}
+                className="border-gray-600 text-gray-300 hover:bg-gray-800"
+              >
+                취소
+              </Button>
+              <Button 
+                onClick={handleCreateShare}
+                disabled={processingAction === 'share' || selectedItems.length === 0}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {processingAction === 'share' ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    생성 중...
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="mr-2 h-4 w-4" />
+                    공유 링크 생성
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

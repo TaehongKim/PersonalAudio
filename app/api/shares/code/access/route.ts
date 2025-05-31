@@ -21,6 +21,10 @@ export async function GET(request: NextRequest) {
             fileType: true,
             fileSize: true,
             duration: true,
+            thumbnailPath: true,
+            groupType: true,
+            groupName: true,
+            rank: true,
             createdAt: true
           }
         }

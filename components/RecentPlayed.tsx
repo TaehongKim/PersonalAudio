@@ -45,6 +45,21 @@ interface RecentPlayedProps {
   onPlayFile?: (file: File) => void;
 }
 
+// 안전한 썸네일 URL 생성 함수
+const getThumbnailUrl = (file: File): string => {
+  if (!file.thumbnailPath || file.thumbnailPath.trim() === '') {
+    return "/placeholder.svg";
+  }
+  
+  // 이미 완전한 URL인 경우 그대로 반환
+  if (file.thumbnailPath.startsWith('http')) {
+    return file.thumbnailPath;
+  }
+  
+  // API 엔드포인트 URL 생성
+  return `/api/files/${file.id}/thumbnail`;
+};
+
 export function RecentPlayed({ onPlayFile }: RecentPlayedProps) {
   const [data, setData] = useState<PlayHistoryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -218,7 +233,7 @@ export function RecentPlayed({ onPlayFile }: RecentPlayedProps) {
                       {/* 썸네일 */}
                       <div className="w-12 h-12 relative flex-shrink-0">
                         <Image
-                          src={item.file.thumbnailPath || "/placeholder.svg"}
+                          src={getThumbnailUrl(item.file)}
                           width={48}
                           height={48}
                           alt={`${item.file.title} 썸네일`}
@@ -273,7 +288,7 @@ export function RecentPlayed({ onPlayFile }: RecentPlayedProps) {
                       {/* 썸네일 */}
                       <div className="w-10 h-10 relative flex-shrink-0">
                         <Image
-                          src={item.file.thumbnailPath || "/placeholder.svg"}
+                          src={getThumbnailUrl(item.file)}
                           width={40}
                           height={40}
                           alt={`${item.file.title} 썸네일`}

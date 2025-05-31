@@ -13,18 +13,30 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     });
 
     if (!file || !file.thumbnailPath) {
-      return NextResponse.json(
-        { error: '썸네일을 찾을 수 없습니다.' },
-        { status: 404 }
-      );
+      // 이미지가 없을 때 투명한 1x1 픽셀 GIF 반환
+      const transparentPixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+      return new NextResponse(transparentPixel, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/gif',
+          'Content-Length': transparentPixel.length.toString(),
+          'Cache-Control': 'public, max-age=86400', // 24시간 캐시
+        }
+      });
     }
 
     // 썸네일 파일 존재 여부 확인
     if (!fs.existsSync(file.thumbnailPath)) {
-      return NextResponse.json(
-        { error: '썸네일 파일이 서버에서 찾을 수 없습니다.' },
-        { status: 404 }
-      );
+      // 이미지가 없을 때 투명한 1x1 픽셀 GIF 반환
+      const transparentPixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+      return new NextResponse(transparentPixel, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/gif',
+          'Content-Length': transparentPixel.length.toString(),
+          'Cache-Control': 'public, max-age=86400', // 24시간 캐시
+        }
+      });
     }
 
     const stats = fs.statSync(file.thumbnailPath);
@@ -62,9 +74,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   } catch (error) {
     console.error('썸네일 스트리밍 오류:', error);
-    return NextResponse.json(
-      { error: '썸네일 스트리밍 중 오류가 발생했습니다.' },
-      { status: 500 }
-    );
+    // 오류 발생 시에도 투명한 1x1 픽셀 GIF 반환
+    const transparentPixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    return new NextResponse(transparentPixel, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/gif',
+        'Content-Length': transparentPixel.length.toString(),
+        'Cache-Control': 'public, max-age=86400', // 24시간 캐시
+      }
+    });
   }
 }

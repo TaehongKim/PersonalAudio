@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import fs from 'fs/promises';
+import path from 'path';
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    const { id } = await params;
+    const { id } = params;
     const file = await prisma.file.findUnique({
       where: { id }
     });
@@ -27,9 +31,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    const { id } = await params;
+    const { id } = params;
+    
     // 파일 정보 조회
     const file = await prisma.file.findUnique({
       where: { id },
@@ -48,43 +56,66 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       );
     }
 
-    // 실제 파일 시스템에서 파일 삭제
-    const deletionResults: string[] = [];
+    const results: string[] = [];
 
-    try {
-      await fs.unlink(file.path);
-      deletionResults.push(`파일 삭제 성공: ${file.path}`);
-    } catch (error) {
-      console.warn(`파일 삭제 실패: ${file.path}`, error);
-      deletionResults.push(`파일 삭제 실패: ${file.path}`);
-    }
-
-    // 썸네일 파일 삭제 (있는 경우)
-    if (file.thumbnailPath) {
+    // 파일 삭제 함수
+    const deleteFile = async (filePath: string, isThumb = false) => {
       try {
-        await fs.unlink(file.thumbnailPath);
-        deletionResults.push(`썸네일 삭제 성공: ${file.thumbnailPath}`);
+        // 경로 정규화
+        const normalizedPath = path.normalize(filePath);
+        
+        // 파일 존재 여부 확인 (stat 사용)
+        try {
+          await fs.stat(normalizedPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            results.push(`${isThumb ? '썸네일' : '파일'} 없음: ${file.title}`);
+            return;
+          }
+          throw error;
+        }
+
+        // 파일 삭제
+        await fs.unlink(normalizedPath);
+        results.push(`${isThumb ? '썸네일' : '파일'} 삭제 성공: ${file.title}`);
       } catch (error) {
-        console.warn(`썸네일 삭제 실패: ${file.thumbnailPath}`, error);
-        deletionResults.push(`썸네일 삭제 실패: ${file.thumbnailPath}`);
+        const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+        console.error(`${isThumb ? '썸네일' : '파일'} 삭제 실패 (${normalizedPath}):`, error);
+        results.push(`${isThumb ? '썸네일' : '파일'} 삭제 실패: ${file.title} (${errorMessage})`);
       }
+    };
+
+    // 메인 파일 삭제
+    await deleteFile(file.path);
+
+    // 썸네일 삭제 (있는 경우)
+    if (file.thumbnailPath) {
+      await deleteFile(file.thumbnailPath, true);
     }
 
-    // 데이터베이스에서 레코드 삭제
+    // DB에서 파일 정보 삭제
     await prisma.file.delete({
       where: { id }
     });
 
+    // 결과 분석
+    const successResults = results.filter(r => r.includes('성공'));
+    const failureResults = results.filter(r => r.includes('실패') || r.includes('없음'));
+
     return NextResponse.json({
       success: true,
-      message: `파일 "${file.title}"이(가) 성공적으로 삭제되었습니다.`,
-      deletionResults
+      deletionResults: results,
+      successCount: successResults.length,
+      failureCount: failureResults.length
     });
 
   } catch (error) {
     console.error('파일 삭제 오류:', error);
     return NextResponse.json(
-      { error: '파일 삭제 중 오류가 발생했습니다.' },
+      { 
+        success: false,
+        error: error instanceof Error ? error.message : '파일 삭제 중 오류가 발생했습니다.' 
+      },
       { status: 500 }
     );
   }

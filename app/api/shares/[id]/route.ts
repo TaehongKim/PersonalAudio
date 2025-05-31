@@ -51,25 +51,24 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const share = await prisma.share.findUnique({
-      where: { id }
-    });
+    
+    // 공유 링크 삭제 시도
+    try {
+      await prisma.share.delete({
+        where: { id }
+      });
 
-    if (!share) {
+      return NextResponse.json({
+        success: true,
+        message: '공유 링크가 성공적으로 삭제되었습니다.'
+      });
+    } catch (deleteError) {
+      // 삭제 실패 시 (존재하지 않는 ID 등)
       return NextResponse.json(
         { error: '삭제할 공유 링크를 찾을 수 없습니다.' },
         { status: 404 }
       );
     }
-
-    await prisma.share.delete({
-      where: { id }
-    });
-
-    return NextResponse.json({
-      success: true,
-      message: '공유 링크가 성공적으로 삭제되었습니다.'
-    });
 
   } catch (error) {
     console.error('공유 링크 삭제 오류:', error);

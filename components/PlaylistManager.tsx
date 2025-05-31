@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useEffect } from "react";
-import { Plus, Play, Trash2, ListMusic } from "lucide-react";
+import { Plus, Play, Trash2, ListMusic, Edit, Save, X, Music, MoreVertical } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { usePlayer } from "@/contexts/PlayerContext";
 
 interface File {
   id: string;
@@ -17,6 +19,7 @@ interface File {
   thumbnailPath?: string;
   groupType?: string;
   groupName?: string;
+  fileType?: string;
 }
 
 interface PlaylistItem {
@@ -42,11 +45,7 @@ interface Group {
   files: File[];
 }
 
-interface PlaylistManagerProps {
-  onPlayFile?: (file: File) => void;
-}
-
-export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
+export function PlaylistManager() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,7 +53,15 @@ export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDescription, setNewPlaylistDescription] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [selectedGroup, setSelectedGroup] = useState<string>('none');
+  const [editingPlaylist, setEditingPlaylist] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [editingDescription, setEditingDescription] = useState('');
+  const [showDetailDialog, setShowDetailDialog] = useState(false);
+  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+
+  // 플레이어 컨텍스트 사용
+  const { loadFile, loadPlaylist, play } = usePlayer();
 
   // 플레이리스트 목록 가져오기
   async function fetchPlaylists() {
@@ -127,7 +134,7 @@ export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
       };
 
       // 선택된 그룹이 있으면 그룹에서 플레이리스트 생성
-      if (selectedGroup) {
+      if (selectedGroup && selectedGroup !== 'none') {
         const [groupType, groupName] = selectedGroup.split(':');
         requestBody.groupType = groupType;
         requestBody.groupName = groupName;
@@ -143,7 +150,7 @@ export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
         setIsCreateDialogOpen(false);
         setNewPlaylistName('');
         setNewPlaylistDescription('');
-        setSelectedGroup('');
+        setSelectedGroup('none');
         await fetchPlaylists();
       } else {
         const data = await response.json();
@@ -193,11 +200,127 @@ export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
       return;
     }
 
-    // 첫 번째 곡 재생
-    const firstItem = playlist.items[0];
-    if (onPlayFile) {
-      onPlayFile(firstItem.file);
+    try {
+      // 플레이리스트의 모든 파일을 플레이어에 로드
+      const files = playlist.items
+        .sort((a, b) => a.order - b.order) // 순서대로 정렬
+        .map(item => item.file as any); // FileData 타입으로 변환
+      
+      // 플레이리스트 로드 후 재생
+      loadPlaylist(files, 0);
+      
+      // 잠시 후 재생 시작 (로딩 시간 고려)
+      setTimeout(() => {
+        play();
+      }, 100);
+    } catch (error) {
+      console.error('플레이리스트 재생 오류:', error);
+      setError('플레이리스트 재생 중 오류가 발생했습니다.');
     }
+  }
+
+  // 단일 곡 재생
+  function playSingleSong(file: File) {
+    try {
+      loadFile(file as any);
+      setTimeout(() => {
+        play();
+      }, 100);
+    } catch (error) {
+      console.error('곡 재생 오류:', error);
+      setError('곡 재생 중 오류가 발생했습니다.');
+    }
+  }
+
+  // 플레이리스트 편집 시작
+  function startEditingPlaylist(playlist: Playlist) {
+    setEditingPlaylist(playlist.id);
+    setEditingName(playlist.name);
+    setEditingDescription(playlist.description || '');
+  }
+
+  // 플레이리스트 편집 취소
+  function cancelEditingPlaylist() {
+    setEditingPlaylist(null);
+    setEditingName('');
+    setEditingDescription('');
+  }
+
+  // 플레이리스트 정보 저장
+  async function savePlaylistInfo(playlistId: string) {
+    if (!editingName.trim()) {
+      setError('플레이리스트 이름을 입력해주세요.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/playlists/${playlistId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editingName.trim(),
+          description: editingDescription.trim() || null
+        })
+      });
+
+      if (response.ok) {
+        await fetchPlaylists();
+        cancelEditingPlaylist();
+      } else {
+        const data = await response.json();
+        setError(data.error || '플레이리스트 수정에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('플레이리스트 수정 오류:', error);
+      setError('플레이리스트 수정 중 오류가 발생했습니다.');
+    }
+  }
+
+  // 플레이리스트에서 곡 제거
+  async function removeFromPlaylist(playlistId: string, itemId: string) {
+    try {
+      console.log('곡 제거 요청:', { playlistId, itemId });
+      
+      const response = await fetch(`/api/playlists/${playlistId}/items/${itemId}`, {
+        method: 'DELETE'
+      });
+
+      console.log('API 응답 상태:', response.status);
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('곡 제거 성공:', result);
+        
+        await fetchPlaylists();
+        
+        // 상세 다이얼로그가 열려있다면 선택된 플레이리스트 업데이트
+        if (selectedPlaylist && selectedPlaylist.id === playlistId) {
+          const updatedPlaylist = playlists.find(p => p.id === playlistId);
+          if (updatedPlaylist) {
+            setSelectedPlaylist(updatedPlaylist);
+          }
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('API 오류 응답:', errorText);
+        
+        try {
+          const data = JSON.parse(errorText);
+          setError(data.error || '곡 제거에 실패했습니다.');
+        } catch {
+          setError(`곡 제거에 실패했습니다. (${response.status})`);
+        }
+      }
+    } catch (error) {
+      console.error('곡 제거 오류:', error);
+      setError('곡 제거 중 네트워크 오류가 발생했습니다.');
+    }
+  }
+
+  // 플레이리스트 상세 보기
+  function showPlaylistDetail(playlist: Playlist) {
+    setSelectedPlaylist(playlist);
+    setShowDetailDialog(true);
   }
 
   // 시간 포맷팅
@@ -211,6 +334,14 @@ export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
   // 이미지 오류 처리
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
     e.currentTarget.src = "/placeholder.svg";
+  };
+
+  // 안전한 썸네일 URL 생성
+  const getThumbnailUrl = (file: File): string => {
+    if (file.thumbnailPath && file.thumbnailPath.trim()) {
+      return `/api/files/${file.id}/thumbnail`;
+    }
+    return "/placeholder.svg";
   };
 
   if (isLoading) {
@@ -264,7 +395,7 @@ export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
                     <SelectValue placeholder="그룹을 선택하세요" />
                   </SelectTrigger>
                   <SelectContent className="bg-gray-800 border-gray-600">
-                    <SelectItem value="">그룹 없음 (빈 플레이리스트)</SelectItem>
+                    <SelectItem value="none">그룹 없음 (빈 플레이리스트)</SelectItem>
                     {groups.map((group) => (
                       <SelectItem key={`${group.groupType}:${group.groupName}`} value={`${group.groupType}:${group.groupName}`}>
                         {group.groupName} ({group.fileCount}곡)
@@ -315,20 +446,82 @@ export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
-                    <CardTitle className="text-lg font-semibold truncate">{playlist.name}</CardTitle>
-                    {playlist.description && (
-                      <p className="text-sm text-gray-400 mt-1 line-clamp-2">{playlist.description}</p>
+                    {editingPlaylist === playlist.id ? (
+                      <div className="space-y-2">
+                        <Input
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          className="bg-white/10 border-white/20 text-white"
+                          placeholder="플레이리스트 이름"
+                        />
+                        <Input
+                          value={editingDescription}
+                          onChange={(e) => setEditingDescription(e.target.value)}
+                          className="bg-white/10 border-white/20 text-white"
+                          placeholder="설명 (선택사항)"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => savePlaylistInfo(playlist.id)}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            <Save className="w-3 h-3 mr-1" />
+                            저장
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={cancelEditingPlaylist}
+                            className="border-white/20"
+                          >
+                            <X className="w-3 h-3 mr-1" />
+                            취소
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <CardTitle className="text-lg font-semibold truncate">{playlist.name}</CardTitle>
+                        {playlist.description && (
+                          <p className="text-sm text-gray-400 mt-1 line-clamp-2">{playlist.description}</p>
+                        )}
+                      </>
                     )}
                   </div>
-                  {!playlist.isSystem && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deletePlaylist(playlist.id)}
-                      className="text-red-400 hover:text-red-300 hover:bg-red-900/20 ml-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                  {editingPlaylist !== playlist.id && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-gray-400 hover:text-white hover:bg-white/10"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="bg-gray-800 border-gray-600 text-white">
+                        <DropdownMenuItem onClick={() => showPlaylistDetail(playlist)}>
+                          <ListMusic className="w-4 h-4 mr-2" />
+                          상세 보기
+                        </DropdownMenuItem>
+                        {!playlist.isSystem && (
+                          <>
+                            <DropdownMenuItem onClick={() => startEditingPlaylist(playlist)}>
+                              <Edit className="w-4 h-4 mr-2" />
+                              편집
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => deletePlaylist(playlist.id)}
+                              className="text-red-400 focus:text-red-300"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              삭제
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
                 </div>
               </CardHeader>
@@ -348,7 +541,7 @@ export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
                       <div key={item.id} className="flex items-center space-x-2 text-sm">
                         <div className="w-8 h-8 relative flex-shrink-0">
                           <Image
-                            src={item.file.thumbnailPath || "/placeholder.svg"}
+                            src={getThumbnailUrl(item.file)}
                             width={32}
                             height={32}
                             alt={`${item.file.title} 썸네일`}
@@ -388,6 +581,98 @@ export function PlaylistManager({ onPlayFile }: PlaylistManagerProps) {
           ))}
         </div>
       )}
+
+      {/* 플레이리스트 상세 다이얼로그 */}
+      <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
+        <DialogContent className="bg-gray-900 text-white border-gray-700 max-w-4xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <ListMusic className="w-5 h-5 mr-2" />
+              {selectedPlaylist?.name}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedPlaylist && (
+            <div className="space-y-4 overflow-y-auto">
+              {selectedPlaylist.description && (
+                <p className="text-gray-400">{selectedPlaylist.description}</p>
+              )}
+              
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-400">
+                  총 {selectedPlaylist.items.length}곡
+                </span>
+                <Button
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={() => playPlaylist(selectedPlaylist)}
+                  disabled={selectedPlaylist.items.length === 0}
+                >
+                  <Play className="w-4 h-4 mr-1" />
+                  전체 재생
+                </Button>
+              </div>
+
+              {selectedPlaylist.items.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <Music className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p>플레이리스트가 비어있습니다</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {selectedPlaylist.items
+                    .sort((a, b) => a.order - b.order)
+                    .map((item, index) => (
+                      <div 
+                        key={item.id} 
+                        className="flex items-center space-x-3 p-3 bg-white/5 rounded-lg hover:bg-white/10 transition-colors"
+                      >
+                        <span className="text-sm text-gray-400 w-6 text-center">
+                          {index + 1}
+                        </span>
+                        <div className="w-10 h-10 relative flex-shrink-0">
+                          <Image
+                            src={getThumbnailUrl(item.file)}
+                            width={40}
+                            height={40}
+                            alt={`${item.file.title} 썸네일`}
+                            className="rounded object-cover"
+                            onError={handleImageError}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{item.file.title}</p>
+                          <p className="text-sm text-gray-400 truncate">
+                            {item.file.artist} {formatDuration(item.file.duration)}
+                          </p>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => playSingleSong(item.file)}
+                            className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                          >
+                            <Play className="w-4 h-4" />
+                          </Button>
+                          {!selectedPlaylist.isSystem && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => removeFromPlaylist(selectedPlaylist.id, item.id)}
+                              className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

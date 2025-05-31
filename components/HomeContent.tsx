@@ -16,12 +16,17 @@ import {
   RefreshCw,
   Video,
   ListMusic,
+  PlayCircle,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import Image from "next/image"
 import { useTheme } from "@/contexts/ThemeContext"
+import { usePlayer } from "@/contexts/PlayerContext"
+import { toast } from "react-hot-toast"
 
 interface QuickAccessItem {
   title: string
@@ -52,8 +57,19 @@ interface StorageInfo {
   }[]
 }
 
+// 안전한 썸네일 URL 생성 함수
+const getThumbnailUrl = (fileId: string, thumbnailPath: string | null): string | null => {
+  if (!thumbnailPath) return null
+  try {
+    return `/api/files/${fileId}/thumbnail`
+  } catch {
+    return null
+  }
+}
+
 export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
   const { theme } = useTheme()
+  const { loadFile } = usePlayer()
   const isDark = theme === "dark"
   
   // 상태 관리
@@ -61,6 +77,8 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null)
   const [topChart, setTopChart] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [youtubeUrl, setYoutubeUrl] = useState("")
+  const [downloadLoading, setDownloadLoading] = useState(false)
 
   // 데이터 로딩 함수들
   const loadRecentFiles = async () => {
@@ -72,6 +90,7 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
       }
     } catch (error) {
       console.error('최근 파일 로딩 실패:', error)
+      toast.error('최근 파일을 불러오는데 실패했습니다.')
     }
   }
 
@@ -84,6 +103,7 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
       }
     } catch (error) {
       console.error('저장 공간 정보 로딩 실패:', error)
+      toast.error('저장 공간 정보를 불러오는데 실패했습니다.')
     }
   }
 
@@ -97,6 +117,7 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
       }
     } catch (error) {
       console.error('인기 파일 로딩 실패:', error)
+      toast.error('인기 파일을 불러오는데 실패했습니다.')
     }
   }
 
@@ -110,17 +131,105 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
     setLoading(false)
   }
 
+  // 파일 재생 함수
+  const playFile = async (file: RecentDownload) => {
+    try {
+      // RecentDownload를 FileData 형태로 변환
+      const fileData = {
+        id: file.id,
+        title: file.title,
+        artist: file.artist,
+        fileType: file.fileType,
+        fileSize: 0, // 홈에서는 파일 크기 정보가 없으므로 0으로 설정
+        duration: null, // duration 정보도 없음
+        thumbnailPath: file.thumbnailPath,
+        createdAt: file.createdAt,
+        downloads: file.downloads
+      }
+      
+      loadFile(fileData)
+      toast.success(`재생 중: ${file.title}`)
+    } catch (error) {
+      console.error('파일 재생 오류:', error)
+      toast.error('파일을 재생할 수 없습니다.')
+    }
+  }
+
+  // 빠른 유튜브 다운로드 기능
+  const handleQuickYoutubeDownload = async () => {
+    if (!youtubeUrl.trim()) {
+      toast.error('유튜브 URL을 입력해주세요.')
+      return
+    }
+
+    // YouTube URL 유효성 검사
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/
+    if (!youtubeRegex.test(youtubeUrl)) {
+      toast.error('올바른 유튜브 URL을 입력해주세요.')
+      return
+    }
+
+    try {
+      setDownloadLoading(true)
+      
+      // 유튜브 다운로드 API 호출
+      const response = await fetch('/api/youtube/download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: youtubeUrl,
+          format: 'mp3', // 기본값을 mp3로 설정
+          quality: 'highest'
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || '다운로드 요청에 실패했습니다.')
+      }
+
+      const result = await response.json()
+      
+      if (result.success) {
+        toast.success('다운로드가 시작되었습니다!')
+        setYoutubeUrl('') // URL 입력 필드 초기화
+        
+        // 다운로드 후 데이터 새로고침
+        setTimeout(() => {
+          loadAllData()
+        }, 2000)
+      } else {
+        throw new Error(result.error || '다운로드에 실패했습니다.')
+      }
+
+    } catch (error) {
+      console.error('유튜브 다운로드 오류:', error)
+      toast.error(error instanceof Error ? error.message : '다운로드 중 오류가 발생했습니다.')
+    } finally {
+      setDownloadLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadAllData()
+    
+    // 30초마다 자동 새로고침
+    const interval = setInterval(() => {
+      loadAllData()
+    }, 30000)
+
+    return () => clearInterval(interval)
   }, [])
 
   // 유틸리티 함수들
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes'
     const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
     const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
   }
 
   const formatDate = (dateString: string): string => {
@@ -184,7 +293,10 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
   if (loading) {
     return (
       <div className={`flex-1 ${isDark ? "bg-gradient-to-b from-blue-900 to-black" : "bg-gradient-to-b from-blue-100 to-white"} text-${isDark ? "white" : "black"} p-4 md:p-8 overflow-y-auto flex items-center justify-center`}>
-        <RefreshCw className="w-8 h-8 animate-spin" />
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4" />
+          <p className={`${isDark ? "text-gray-300" : "text-gray-600"}`}>데이터를 불러오는 중...</p>
+        </div>
       </div>
     )
   }
@@ -197,18 +309,24 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
         <div>
           <h1 className={`text-3xl font-bold mb-2 ${isDark ? "text-white" : "text-gray-800"}`}>안녕하세요!</h1>
           <p className={`${isDark ? "text-gray-300" : "text-gray-600"}`}>
-            YC_mp3_Web에 오신 것을 환영합니다. 무엇을 도와드릴까요?
+            사랑하는 윤채의 음악방에 오신 것을 환영합니다. 무엇을 도와드릴까요?
           </p>
         </div>
+        <div className="flex gap-2">
+          <Badge variant={isDark ? "secondary" : "default"} className="text-xs">
+            실시간 업데이트
+          </Badge>
         <Button
           variant="outline"
           size="sm"
           onClick={loadAllData}
+            disabled={loading}
           className={`${isDark ? "border-white/20 text-white hover:bg-white/10" : "border-gray-300 text-gray-800 hover:bg-gray-100"}`}
         >
-          <RefreshCw className="w-4 h-4 mr-2" />
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           새로고침
         </Button>
+        </div>
       </div>
 
       {/* 빠른 접근 섹션 */}
@@ -254,37 +372,23 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
                 </div>
               ) : (
                 recentDownloads.map((download) => (
-                  <div key={download.id} className="flex items-center">
+                  <div key={download.id} className="flex items-center group">
                     <div className="relative">
-                      {download.thumbnailPath && download.fileType.toLowerCase().includes('mp3') ? (
+                      {getThumbnailUrl(download.id, download.thumbnailPath) ? (
                         <Image
-                          src={`/api/files/${download.id}/thumbnail`}
+                          src={getThumbnailUrl(download.id, download.thumbnailPath)!}
                           width={40}
                           height={40}
-                          alt={`${download.title} cover`}
+                          alt={`${download.title} 썸네일`}
                           className="rounded object-cover"
                           onError={(e) => {
-                            const img = e.target as HTMLImageElement;
-                            img.style.display = 'none';
-                            const parent = img.parentElement;
-                            if (parent) {
-                              const iconElement = parent.querySelector('.fallback-icon');
-                              if (iconElement) {
-                                iconElement.classList.remove('hidden');
-                              }
-                            }
+                            e.currentTarget.style.display = 'none'
+                            const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                            if (fallback) fallback.style.display = 'flex'
                           }}
                         />
-                      ) : (
-                        <div className="w-10 h-10 bg-gray-300 dark:bg-gray-600 rounded flex items-center justify-center">
-                          {download.fileType.toLowerCase().includes('mp3') ? (
-                            <Music className="w-5 h-5 text-green-600" />
-                          ) : (
-                            <Video className="w-5 h-5 text-red-600" />
-                          )}
-                        </div>
-                      )}
-                      <div className={`fallback-icon absolute top-0 left-0 w-10 h-10 bg-gray-300 dark:bg-gray-600 rounded flex items-center justify-center ${download.thumbnailPath && download.fileType.toLowerCase().includes('mp3') ? 'hidden' : ''}`}>
+                      ) : null}
+                      <div className={`w-10 h-10 bg-gray-300 dark:bg-gray-600 rounded flex items-center justify-center ${getThumbnailUrl(download.id, download.thumbnailPath) ? 'hidden' : ''}`}>
                         {download.fileType.toLowerCase().includes('mp3') ? (
                           <Music className="w-5 h-5 text-green-600" />
                         ) : (
@@ -301,9 +405,22 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
                       <p className={`text-sm font-medium ${isDark ? "text-white" : "text-gray-800"} truncate`}>{download.title}</p>
                       <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"} truncate`}>{download.artist || '알 수 없는 아티스트'}</p>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          playFile(download)
+                        }}
+                      >
+                        <PlayCircle className="h-4 w-4" />
+                      </Button>
                     <div className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"} flex flex-col items-end`}>
                       <span>{formatDate(download.createdAt)}</span>
                       <span className="text-xs opacity-75">{download.downloads}회 다운로드</span>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -410,37 +527,34 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
             topChart.map((file, index) => (
               <Card
                 key={file.id}
-                className={`${isDark ? "bg-white/10 border-white/10 text-white" : "bg-white border-gray-200 text-gray-800"} cursor-pointer hover:scale-105 transition-transform`}
-                onClick={() => setActiveTab("files")}
+                className={`${isDark ? "bg-white/10 border-white/10 text-white" : "bg-white border-gray-200 text-gray-800"} cursor-pointer hover:scale-105 transition-transform group`}
+                onClick={() => playFile(file)}
               >
                 <div className="relative">
                   <div className="w-full aspect-square bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
-                    {file.thumbnailPath && file.fileType.toLowerCase().includes('mp3') ? (
+                    {getThumbnailUrl(file.id, file.thumbnailPath) ? (
                       <Image
-                        src={`/api/files/${file.id}/thumbnail`}
+                        src={getThumbnailUrl(file.id, file.thumbnailPath)!}
                         width={150}
                         height={150}
                         alt={`${file.title} 썸네일`}
                         className="w-full h-full object-cover"
                         onError={(e) => {
-                          const img = e.target as HTMLImageElement;
-                          img.style.display = 'none';
-                          const parent = img.parentElement;
-                          if (parent) {
-                            const iconElement = parent.querySelector('.fallback-icon');
-                            if (iconElement) {
-                              iconElement.classList.remove('hidden');
-                            }
-                          }
+                          e.currentTarget.style.display = 'none'
+                          const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                          if (fallback) fallback.style.display = 'flex'
                         }}
                       />
                     ) : null}
-                    <div className={`fallback-icon ${file.thumbnailPath && file.fileType.toLowerCase().includes('mp3') ? 'hidden' : ''}`}>
+                    <div className={`fallback-icon absolute inset-0 flex items-center justify-center ${getThumbnailUrl(file.id, file.thumbnailPath) ? 'hidden' : ''}`}>
                       {file.fileType.toLowerCase().includes('mp3') ? (
                         <Music className="w-12 h-12 text-green-400" />
                       ) : (
                         <Video className="w-12 h-12 text-red-400" />
                       )}
+                    </div>
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <PlayCircle className="w-12 h-12 text-white" />
                     </div>
                   </div>
                   <div className="absolute top-2 left-2">
@@ -495,18 +609,34 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
         </CardHeader>
         <CardContent>
           <div className="flex gap-2">
-            <input
+            <Input
               type="text"
               placeholder="https://www.youtube.com/watch?v=..."
-              className={`flex-1 px-3 py-2 rounded-md ${
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleQuickYoutubeDownload()
+                }
+              }}
+              className={`flex-1 ${
                 isDark
                   ? "bg-white/5 border-white/20 text-white focus:border-blue-500"
                   : "bg-gray-100 border-gray-300 text-gray-800 focus:border-blue-500"
-              } border outline-none focus:ring-1 focus:ring-blue-500`}
+              }`}
+              disabled={downloadLoading}
             />
-            <Button className={isDark ? "bg-red-600 hover:bg-red-700" : "bg-red-500 hover:bg-red-600"}>
+            <Button 
+              className={isDark ? "bg-red-600 hover:bg-red-700" : "bg-red-500 hover:bg-red-600"}
+              onClick={handleQuickYoutubeDownload}
+              disabled={downloadLoading || !youtubeUrl.trim()}
+            >
+              {downloadLoading ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
               <Download className="h-4 w-4 mr-2" />
-              다운로드
+              )}
+              {downloadLoading ? '다운로드 중...' : '다운로드'}
             </Button>
           </div>
         </CardContent>
