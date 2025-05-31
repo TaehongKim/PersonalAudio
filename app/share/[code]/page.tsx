@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { use } from 'react'
 import { Share2, Download, Copy, Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from 'react-toastify'
 import { usePlayer } from '@/contexts/PlayerContext'
+import Image from 'next/image'
 
 interface SharedFileData {
   id: string
@@ -34,6 +35,18 @@ interface ShareData {
   currentDownloads: number
   createdAt: string
 }
+
+// 긴 텍스트를 중간에 ... 으로 줄이는 유틸리티 함수
+const truncateMiddle = (text: string, maxLength: number = 25): string => {
+  if (text.length <= maxLength) return text;
+  
+  const ellipsis = '...';
+  const charsToShow = maxLength - ellipsis.length;
+  const frontChars = Math.ceil(charsToShow / 2);
+  const backChars = Math.floor(charsToShow / 2);
+  
+  return text.substring(0, frontChars) + ellipsis + text.substring(text.length - backChars);
+};
 
 export default function SharePage({ params }: { params: Promise<{ code: string }> }) {
   const resolvedParams = use(params)
@@ -481,10 +494,13 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
                       <div className="relative">
                         <div className="w-12 h-12 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
                           {thumbnailUrl ? (
-                            <img
+                            <Image
                               src={thumbnailUrl}
                               alt={`${file.title} 썸네일`}
+                              width={48}
+                              height={48}
                               className="w-full h-full object-cover"
+                              unoptimized
                               onError={(e) => {
                                 // 이미지 로드 실패 시 기본 아이콘으로 변경
                                 const target = e.target as HTMLImageElement;
@@ -514,9 +530,11 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
                         </div>
                       </div>
                       <div className="flex-1 min-w-0 mr-4">
-                        <p className="font-medium truncate">{file.title}</p>
-                        <p className="text-sm text-gray-400">
-                          {file.artist || '알 수 없는 아티스트'} • {formatDuration(file.duration)}
+                        <p className="font-medium truncate" title={file.title}>
+                          {truncateMiddle(file.title, 30)}
+                        </p>
+                        <p className="text-sm text-gray-400" title={file.artist || '알 수 없는 아티스트'}>
+                          {truncateMiddle(file.artist || '알 수 없는 아티스트', 25)} • {formatDuration(file.duration)}
                         </p>
                         <div className="flex items-center text-xs text-gray-500 mt-1">
                           <Badge className="mr-2 bg-blue-600">

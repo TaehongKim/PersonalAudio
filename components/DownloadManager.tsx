@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { useSocket } from "@/hooks/useSocket"
 import { useSession } from "@/hooks/useSession"
 import { useDownload } from '@/contexts/DownloadContext'
+import Image from 'next/image'
 
 interface DownloadTask {
   jobId: string
@@ -38,6 +39,18 @@ interface QueueItem {
   createdAt: string
   data?: any
 }
+
+// 긴 텍스트를 중간에 ... 으로 줄이는 유틸리티 함수
+const truncateMiddle = (text: string, maxLength: number = 30): string => {
+  if (text.length <= maxLength) return text;
+  
+  const ellipsis = '...';
+  const charsToShow = maxLength - ellipsis.length;
+  const frontChars = Math.ceil(charsToShow / 2);
+  const backChars = Math.floor(charsToShow / 2);
+  
+  return text.substring(0, frontChars) + ellipsis + text.substring(text.length - backChars);
+};
 
 export function DownloadManager() {
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([])
@@ -492,10 +505,13 @@ export function DownloadManager() {
                     {/* 썸네일 (있는 경우) */}
                     {task.coverUrl && (
                       <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex-shrink-0">
-                        <img 
+                        <Image 
                           src={task.coverUrl} 
                           alt="Cover" 
+                          width={48}
+                          height={48}
                           className="w-full h-full object-cover"
+                          unoptimized
                           onError={(e) => {
                             e.currentTarget.style.display = 'none'
                           }}
@@ -505,8 +521,8 @@ export function DownloadManager() {
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">
-                          {task.title}
+                        <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate" title={task.title}>
+                          {truncateMiddle(task.title, 35)}
                         </h3>
                         {task.type && (
                           <Badge 
@@ -517,8 +533,8 @@ export function DownloadManager() {
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate mb-2">
-                        {task.artist}
+                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate mb-2" title={task.artist}>
+                        {truncateMiddle(task.artist, 30)}
                       </p>
                       
                       {/* 진행률 바 (진행 중/대기 중/중지된 작업만) */}

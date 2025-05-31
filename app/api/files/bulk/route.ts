@@ -167,7 +167,7 @@ async function handleBulkDelete(fileIds: string[]) {
         return [`${isThumb ? '썸네일' : '파일'} 삭제 성공: ${title}`];
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
-        console.error(`${isThumb ? '썸네일' : '파일'} 삭제 실패 (${normalizedPath}):`, error);
+        console.error(`${isThumb ? '썸네일' : '파일'} 삭제 실패 (${filePath}):`, error);
         return [`${isThumb ? '썸네일' : '파일'} 삭제 실패: ${title} (${errorMessage})`];
       }
     };
@@ -363,8 +363,27 @@ async function handleBulkDownload(fileIds: string[]) {
   }
 }
 
-// ZIP 파일명 생성 함수 분리
-function generateZipFileName(files: any[], fileCount: number): string {
+// 파일 타입 정의
+interface FileInfo {
+  id: string;
+  title: string;
+  artist?: string | null;
+  path: string;
+  fileType: string;
+  groupType?: string | null;
+  groupName?: string | null;
+  rank?: number | null;
+}
+
+interface GroupInfo {
+  groupType: string | null;
+  groupName: string | null;
+}
+
+// ZIP 파일명 생성 함수 오버로드
+function generateZipFileName(files: FileInfo[], fileCount: number): string;
+function generateZipFileName(files: GroupInfo[], fileCount: number): string;
+function generateZipFileName(files: FileInfo[] | GroupInfo[], fileCount: number): string {
   // 파일들을 그룹별로 분류
   const groupedFiles = files.reduce((acc, file) => {
     const groupKey = `${file.groupType || 'unknown'}_${file.groupName || 'unknown'}`;
@@ -373,7 +392,7 @@ function generateZipFileName(files: any[], fileCount: number): string {
     }
     acc[groupKey].push(file);
     return acc;
-  }, {} as Record<string, typeof files>);
+  }, {} as Record<string, (FileInfo | GroupInfo)[]>);
   
   const groupKeys = Object.keys(groupedFiles);
   let zipFileName: string;

@@ -1,8 +1,22 @@
 'use client';
 
+import React from 'react';
 import { Download, Trash2, Play, Pause, ExternalLink, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import Image from 'next/image';
+
+// 긴 텍스트를 중간에 ... 으로 줄이는 유틸리티 함수
+const truncateMiddle = (text: string, maxLength: number = 40): string => {
+  if (text.length <= maxLength) return text;
+  
+  const ellipsis = '...';
+  const charsToShow = maxLength - ellipsis.length;
+  const frontChars = Math.ceil(charsToShow / 2);
+  const backChars = Math.floor(charsToShow / 2);
+  
+  return text.substring(0, frontChars) + ellipsis + text.substring(text.length - backChars);
+};
 
 interface FileItemProps {
   file: {
@@ -67,11 +81,14 @@ export function FileItem({
             <>
               {/* 멜론 차트 파일인 경우 멜론 앨범 커버 우선 표시 */}
               {file.groupType === 'melon_chart' && file.title && file.artist && melonCoverCache[`${file.artist}_${file.title}`] ? (
-                <img 
+                <Image 
                   src={melonCoverCache[`${file.artist}_${file.title}`]}
                   alt={`${file.title} 앨범 커버`}
+                  width={48}
+                  height={48}
                   className="w-full h-full object-cover rounded"
                   loading="lazy"
+                  unoptimized
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.style.display = 'none';
@@ -92,11 +109,14 @@ export function FileItem({
               ) : null}
               {/* 기존 썸네일 이미지 (멜론 커버가 없을 때만 표시) */}
               {file.thumbnailPath && !(file.groupType === 'melon_chart' && melonCoverCache[`${file.artist}_${file.title}`]) ? (
-                <img 
+                <Image 
                   src={`/api/files/${file.id}/thumbnail`}
                   alt={`${file.title} 앨범 커버`}
+                  width={48}
+                  height={48}
                   className="thumbnail-img w-full h-full object-cover rounded"
                   loading="lazy"
+                  unoptimized
                   onError={(e) => {
                     e.preventDefault();
                     const target = e.target as HTMLImageElement;
@@ -125,10 +145,12 @@ export function FileItem({
               #{file.rank}
             </Badge>
           )}
-          <p className="font-medium truncate">{highlightText(file.title)}</p>
+          <p className="font-medium truncate" title={file.title}>
+            {highlightText(truncateMiddle(file.title, 35))}
+          </p>
         </div>
-        <p className="text-sm text-gray-400">
-          {highlightText(file.artist || '알 수 없는 아티스트')} • {formatDuration(file.duration)}
+        <p className="text-sm text-gray-400" title={file.artist || '알 수 없는 아티스트'}>
+          {highlightText(truncateMiddle(file.artist || '알 수 없는 아티스트', 30))} • {formatDuration(file.duration)}
         </p>
         <div className="flex items-center text-xs text-gray-500 mt-1">
           <Badge className={`mr-2 ${getFileBadgeColor(file.fileType)}`}>

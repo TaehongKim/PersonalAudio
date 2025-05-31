@@ -10,7 +10,7 @@ import path from 'path'
 
 interface ChartData {
   timestamp: number
-  data: any[]
+  data: ChartSong[]
 }
 
 const CACHE_DIR = path.join(process.cwd(), 'storage', 'cache', 'melon')
@@ -40,7 +40,7 @@ async function getChartCache(): Promise<ChartData | null> {
   return null
 }
 
-async function setChartCache(data: any[]) {
+async function setChartCache(data: ChartSong[]) {
   try {
     await ensureCacheDir()
     const cache: ChartData = {

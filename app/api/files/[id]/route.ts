@@ -5,10 +5,10 @@ import path from 'path';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     const file = await prisma.file.findUnique({
       where: { id }
     });
@@ -33,10 +33,10 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     
     // 파일 정보 조회
     const file = await prisma.file.findUnique({
@@ -80,7 +80,7 @@ export async function DELETE(
         results.push(`${isThumb ? '썸네일' : '파일'} 삭제 성공: ${file.title}`);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
-        console.error(`${isThumb ? '썸네일' : '파일'} 삭제 실패 (${normalizedPath}):`, error);
+        console.error(`${isThumb ? '썸네일' : '파일'} 삭제 실패 (${filePath}):`, error);
         results.push(`${isThumb ? '썸네일' : '파일'} 삭제 실패: ${file.title} (${errorMessage})`);
       }
     };

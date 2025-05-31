@@ -6,19 +6,13 @@ import { useState, useEffect, useCallback } from "react"
 import {
   Download,
   Trash2,
-  Search,
   Share2,
   Music,
   Video,
-  SortDesc,
-  Filter,
   Play,
-  Pause,
   FolderOpen,
   Loader2,
   RefreshCw,
-  Grid3X3,
-  List,
   ChevronDown,
   ChevronRight,
   Edit3,
@@ -27,9 +21,7 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
-  HardDrive,
   Database,
-  ExternalLink,
   ChevronsUpDown,
   ChevronsDownUp,
 } from "lucide-react"
@@ -45,7 +37,7 @@ import {
   BreadcrumbLink,
   BreadcrumbList,
 } from "@/components/ui/breadcrumb"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { usePlayer } from "@/contexts/PlayerContext"
 import { useSocket } from "@/hooks/useSocket"

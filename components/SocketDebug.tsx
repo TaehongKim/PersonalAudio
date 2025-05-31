@@ -53,7 +53,7 @@ export function SocketDebug() {
           </div>
           {error && (
             <div className="text-xs text-red-400">
-              <strong>오류:</strong> {error}
+              <strong>오류:</strong> {error.message}
             </div>
           )}
           <div className="text-xs">
