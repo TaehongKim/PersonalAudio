@@ -10,43 +10,50 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { usePlaylist } from '@/contexts/PlaylistContext';
+import { Badge } from "@/components/ui/badge";
 
-interface File {
+interface FileData {
   id: string;
   title: string;
-  artist?: string;
+  artist: string;
+  fileType: string;
+  fileSize: number;
   duration?: number;
   thumbnailPath?: string;
-  groupType?: string;
-  groupName?: string;
-  fileType?: string;
+  createdAt: string;
 }
 
 interface PlaylistItem {
   id: string;
+  playlistId: string;
+  fileId: string;
   order: number;
-  file: File;
+  file: FileData;
 }
 
-interface Playlist {
+// Context의 Playlist 타입을 재사용
+type Playlist = {
   id: string;
   name: string;
   description?: string;
-  isSystem: boolean;
+  isSystem?: boolean;
   createdAt: string;
+  updatedAt: string;
   items: PlaylistItem[];
-  _count: { items: number };
-}
+  _count: {
+    items: number;
+  };
+};
 
 interface Group {
   groupType: string;
   groupName: string;
   fileCount: number;
-  files: File[];
+  files: FileData[];
 }
 
 export function PlaylistManager() {
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,64 +67,46 @@ export function PlaylistManager() {
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
 
-  // 플레이어 컨텍스트 사용
+  // Context 사용
   const { loadFile, loadPlaylist, play } = usePlayer();
+  const { 
+    playlists, 
+    loading: playlistLoading, 
+    error: playlistError, 
+    refreshPlaylists, 
+    addPlaylist, 
+    removePlaylist, 
+    updatePlaylist 
+  } = usePlaylist();
 
-  // 플레이리스트 목록 가져오기
-  async function fetchPlaylists() {
-    try {
-      const response = await fetch('/api/playlists');
-      if (response.ok) {
-        const data = await response.json();
-        setPlaylists(data.playlists || []);
-      } else {
-        throw new Error('플레이리스트를 불러올 수 없습니다.');
-      }
-    } catch (error) {
-      console.error('플레이리스트 조회 오류:', error);
-      setError('플레이리스트를 불러오는 중 오류가 발생했습니다.');
-    }
-  }
-
-  // 다운로드 그룹 목록 가져오기
+  // 그룹 목록 가져오기
   async function fetchGroups() {
     try {
-      const response = await fetch('/api/files');
+      const response = await fetch('/api/files/groups');
       if (response.ok) {
         const data = await response.json();
-        const groupMap = new Map<string, Group>();
-        
-        data.files?.forEach((file: File) => {
-          if (file.groupType && file.groupName) {
-            const key = `${file.groupType}:${file.groupName}`;
-            if (!groupMap.has(key)) {
-              groupMap.set(key, {
-                groupType: file.groupType,
-                groupName: file.groupName,
-                fileCount: 0,
-                files: []
-              });
-            }
-            const group = groupMap.get(key)!;
-            group.fileCount++;
-            group.files.push(file);
-          }
-        });
-        
-        setGroups(Array.from(groupMap.values()));
+        setGroups(data.groups || []);
+      } else {
+        throw new Error('그룹을 불러올 수 없습니다.');
       }
     } catch (error) {
       console.error('그룹 조회 오류:', error);
+      setError('그룹을 불러오는 중 오류가 발생했습니다.');
     }
   }
 
+  // 초기 데이터 로딩
   useEffect(() => {
-    async function loadData() {
+    async function loadInitialData() {
       setIsLoading(true);
-      await Promise.all([fetchPlaylists(), fetchGroups()]);
+      await Promise.all([
+        fetchGroups(),
+        refreshPlaylists()
+      ]);
       setIsLoading(false);
     }
-    loadData();
+
+    loadInitialData();
   }, []);
 
   // 플레이리스트 생성
@@ -147,11 +136,18 @@ export function PlaylistManager() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+        const newPlaylist = data.playlist;
+        
+        // Context에 새 플레이리스트 추가 (사이드바 즉시 갱신)
+        addPlaylist(newPlaylist);
+        
+        // 다이얼로그 닫기 및 폼 리셋
         setIsCreateDialogOpen(false);
         setNewPlaylistName('');
         setNewPlaylistDescription('');
         setSelectedGroup('none');
-        await fetchPlaylists();
+        setError(null);
       } else {
         const data = await response.json();
         setError(data.error || '플레이리스트 생성에 실패했습니다.');
@@ -182,7 +178,9 @@ export function PlaylistManager() {
       });
 
       if (response.ok) {
-        await fetchPlaylists();
+        // Context에서 플레이리스트 제거 (사이드바 즉시 갱신)
+        removePlaylist(playlistId);
+        setError(null);
       } else {
         const data = await response.json();
         setError(data.error || '플레이리스트 삭제에 실패했습니다.');
@@ -220,7 +218,7 @@ export function PlaylistManager() {
   }
 
   // 단일 곡 재생
-  function playSingleSong(file: File) {
+  function playSingleSong(file: FileData) {
     try {
       loadFile(file as any);
       setTimeout(() => {
@@ -264,8 +262,17 @@ export function PlaylistManager() {
       });
 
       if (response.ok) {
-        await fetchPlaylists();
+        const data = await response.json();
+        const updatedPlaylist = data.playlist;
+        
+        // Context에서 플레이리스트 업데이트 (사이드바 즉시 갱신)
+        updatePlaylist(playlistId, {
+          name: updatedPlaylist.name,
+          description: updatedPlaylist.description
+        });
+        
         cancelEditingPlaylist();
+        setError(null);
       } else {
         const data = await response.json();
         setError(data.error || '플레이리스트 수정에 실패했습니다.');
@@ -291,7 +298,7 @@ export function PlaylistManager() {
         const result = await response.json();
         console.log('곡 제거 성공:', result);
         
-        await fetchPlaylists();
+        await refreshPlaylists();
         
         // 상세 다이얼로그가 열려있다면 선택된 플레이리스트 업데이트
         if (selectedPlaylist && selectedPlaylist.id === playlistId) {
@@ -337,12 +344,15 @@ export function PlaylistManager() {
   };
 
   // 안전한 썸네일 URL 생성
-  const getThumbnailUrl = (file: File): string => {
+  const getThumbnailUrl = (file: FileData): string => {
     if (file.thumbnailPath && file.thumbnailPath.trim()) {
       return `/api/files/${file.id}/thumbnail`;
     }
     return "/placeholder.svg";
   };
+
+  // 에러 처리 - playlistError와 error를 합쳐서 표시
+  const displayError = error || playlistError;
 
   if (isLoading) {
     return (
@@ -417,9 +427,9 @@ export function PlaylistManager() {
         </Dialog>
       </div>
 
-      {error && (
+      {displayError && (
         <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-sm">
-          {error}
+          {displayError}
           <Button 
             variant="ghost" 
             size="sm" 

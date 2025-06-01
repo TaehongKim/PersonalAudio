@@ -18,8 +18,8 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    // 유튜브 URL 형식 확인
-    const isYoutubeUrl = url.includes('youtube.com') || url.includes('youtu.be');
+    // 유튜브 URL 형식 확인 (ytsearch도 허용)
+    const isYoutubeUrl = url.includes('youtube.com') || url.includes('youtu.be') || url.startsWith('ytsearch:');
     if (!isYoutubeUrl) {
       return NextResponse.json({
         success: false,

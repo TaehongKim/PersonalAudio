@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getAllPendingDownloads, getAllProcessingDownloads } from '@/lib/queue-manager';
-import { ensureServerInitialized } from '@/lib/server-init';
-
-// 서버 초기화 확인
-ensureServerInitialized();
+import { getAllPendingDownloads, getAllProcessingDownloads, getRecentCompletedDownloads } from '@/lib/queue-manager';
+import { prisma } from '@/lib/prisma';
+import { DownloadStatus } from '@/lib/downloader';
 
 export async function GET() {
   try {
@@ -11,8 +9,41 @@ export async function GET() {
     const pendingDownloads = await getAllPendingDownloads();
     const processingDownloads = await getAllProcessingDownloads();
     
-    // 두 배열 합치기 (처리 중이 먼저, 그 다음 대기 중)
-    const downloadQueue = [...processingDownloads, ...pendingDownloads];
+    // 최근 실패한 작업들 (최근 1시간 내)
+    const recentFailedDownloads = await prisma.downloadQueue.findMany({
+      where: {
+        status: DownloadStatus.FAILED,
+        updatedAt: {
+          gte: new Date(Date.now() - 60 * 60 * 1000) // 1시간 전
+        }
+      },
+      orderBy: {
+        updatedAt: 'desc'
+      },
+      take: 20 // 최대 20개
+    });
+    
+    // 최근 완료된 작업들 (최근 10분 내)
+    const recentCompletedDownloads = await prisma.downloadQueue.findMany({
+      where: {
+        status: DownloadStatus.COMPLETED,
+        updatedAt: {
+          gte: new Date(Date.now() - 10 * 60 * 1000) // 10분 전
+        }
+      },
+      orderBy: {
+        updatedAt: 'desc'
+      },
+      take: 10 // 최대 10개
+    });
+    
+    // 모든 배열 합치기 (처리 중 -> 대기 중 -> 실패 -> 완료 순)
+    const downloadQueue = [
+      ...processingDownloads, 
+      ...pendingDownloads, 
+      ...recentFailedDownloads,
+      ...recentCompletedDownloads
+    ];
     
     return NextResponse.json({
       success: true,

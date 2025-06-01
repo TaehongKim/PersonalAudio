@@ -1,8 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useCallback } from "react"
-import { X, CheckCircle, AlertCircle, Clock, Loader2, Music, Pause, Play, Square, Trash2, Search, Archive, RotateCcw } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { X, CheckCircle, AlertCircle, Clock, Loader2, Music, Pause, Play, Square, Trash2, Search, Archive, RotateCcw, RefreshCw } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
@@ -123,17 +123,41 @@ export function DownloadManager() {
       const queueData = data.success ? data.data : []
       
       // 큐 데이터를 DownloadTask 형태로 변환
-      const tasks: DownloadTask[] = (queueData || []).map((item: QueueItem) => ({
-        jobId: item.id,
-        title: item.title || item.url,
-        artist: item.data?.artist || '알 수 없음',
-        progress: item.progress,
-        status: item.status as any,
-        coverUrl: item.data?.coverUrl,
-        createdAt: item.createdAt,
-        type: item.url.includes('melon') ? 'melon' : 'youtube',
-        data: item.data
-      }))
+      const tasks: DownloadTask[] = (queueData || []).map((item: any) => {
+        // options 파싱 (error 필드에 JSON으로 저장됨)
+        let options: any = {};
+        let errorMessage = undefined;
+        
+        try {
+          if (item.error && item.error.startsWith('{')) {
+            options = JSON.parse(item.error);
+          } else if (item.error) {
+            // JSON이 아닌 경우 오류 메시지로 처리
+            errorMessage = item.error;
+          }
+        } catch {
+          // JSON 파싱 실패 시 오류 메시지로 처리
+          errorMessage = item.error;
+        }
+
+        return {
+          jobId: item.id,
+          title: options.title || item.url,
+          artist: options.artist || '알 수 없음',
+          progress: item.progress,
+          status: item.status as any,
+          error: item.status === 'failed' ? errorMessage : undefined,
+          coverUrl: options.coverUrl,
+          createdAt: item.createdAt,
+          type: item.url.includes('melon') || options.isMelonChart ? 'melon' : 'youtube',
+          data: {
+            url: item.url, // 원본 URL
+            type: item.type,
+            options: options,
+            ...options
+          }
+        }
+      })
       
       setDownloadTasks(tasks)
       setDownloadCount(tasks.length) // 다운로드 개수 업데이트
@@ -266,7 +290,6 @@ export function DownloadManager() {
     }
   }
 
-
   // 완료된 작업 제거
   const removeCompletedTask = (jobId: string) => {
     setDownloadTasks(prev => prev.filter(task => task.jobId !== jobId))
@@ -349,6 +372,126 @@ export function DownloadManager() {
       await resumeDownload(jobId)
     }
   }
+
+  // 실패한 다운로드 재시도
+  const retryDownload = async (task: DownloadTask) => {
+    try {
+      // task.data에서 원본 URL 추출
+      const url = task.data?.url;
+      if (!url) {
+        console.error('재시도할 URL을 찾을 수 없습니다:', task);
+        alert('재시도할 URL을 찾을 수 없습니다. 원본 다운로드 요청을 다시 시도해주세요.');
+        return;
+      }
+
+      // 다운로드 타입 결정
+      let downloadType = 'mp3'; // 기본값
+      
+      if (task.data?.type) {
+        // DownloadType enum 값을 문자열로 변환
+        if (task.data.type.includes('VIDEO') || task.data.type === 'VIDEO') {
+          downloadType = 'video';
+        } else if (task.data.type.includes('PLAYLIST')) {
+          downloadType = task.data.type.includes('VIDEO') ? 'playlist-video' : 'playlist-mp3';
+        }
+      }
+
+      console.log(`재시도 중: ${task.title} - URL: ${url}, Type: ${downloadType}`);
+
+      const response = await fetch('/api/youtube/download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url, type: downloadType }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || '재시도 중 오류가 발생했습니다.');
+      }
+
+      // 기존 실패한 작업을 목록에서 제거
+      setDownloadTasks(prev => prev.filter(t => t.jobId !== task.jobId));
+      
+      console.log(`재시도 성공: ${task.title}, 새 Job ID: ${data.data.id}`);
+      
+      // 성공 알림
+      // alert(`"${task.title}" 재시도가 시작되었습니다.`);
+    } catch (err) {
+      console.error('재시도 오류:', err);
+      alert(`재시도 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`);
+    }
+  };
+
+  // 선택된 실패 작업들 재시도
+  const retrySelectedTasks = async () => {
+    const failedTasks = downloadTasks.filter(task => 
+      selectedTasks.includes(task.jobId) && task.status === 'failed'
+    );
+
+    for (const task of failedTasks) {
+      await retryDownload(task);
+    }
+    
+    setSelectedTasks([]);
+  };
+
+  // 모든 실패 작업 재시도
+  const retryAllFailedTasks = async () => {
+    const failedTasks = downloadTasks.filter(task => task.status === 'failed');
+    
+    for (const task of failedTasks) {
+      await retryDownload(task);
+    }
+  };
+
+  // 실패한 작업들 삭제
+  const deleteFailedTasks = async (jobIds: string[]) => {
+    try {
+      // 일괄 삭제 API 호출
+      const response = await fetch('/api/youtube/delete-batch', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ ids: jobIds })
+      });
+
+      if (response.ok) {
+        // 성공 시 프론트엔드 상태에서 제거
+        setDownloadTasks(prev => prev.filter(task => !jobIds.includes(task.jobId)));
+        
+        // 선택된 작업 목록에서도 제거
+        setSelectedTasks(prev => prev.filter(id => !jobIds.includes(id)));
+        
+        console.log(`${jobIds.length}개의 실패 작업이 삭제되었습니다.`);
+      } else {
+        const error = await response.json();
+        console.error('삭제 실패:', error.message);
+      }
+    } catch (error) {
+      console.error('삭제 요청 실패:', error);
+    }
+  };
+
+  // 모든 실패 작업 삭제
+  const clearAllFailedTasks = async () => {
+    const failedJobIds = downloadTasks.filter(task => task.status === 'failed').map(task => task.jobId);
+    await deleteFailedTasks(failedJobIds);
+  };
+
+  // 선택된 실패 작업들 삭제
+  const deleteSelectedFailedTasks = async () => {
+    const selectedFailedJobIds = downloadTasks
+      .filter(task => selectedTasks.includes(task.jobId) && task.status === 'failed')
+      .map(task => task.jobId);
+    
+    await deleteFailedTasks(selectedFailedJobIds);
+    setSelectedTasks([]);
+  };
 
   // 필터링된 작업 목록
   const filteredTasks = downloadTasks.filter(task => {
@@ -560,6 +703,35 @@ export function DownloadManager() {
                   <Trash2 className="w-4 h-4 mr-1" />
                   선택 삭제
                 </Button>
+                
+                {/* 선택된 작업 중 실패한 것들에 대한 특별 액션 */}
+                {downloadTasks.some(task => selectedTasks.includes(task.jobId) && task.status === 'failed') && (
+                  <>
+                    <Button onClick={retrySelectedTasks} variant="outline" size="sm" className="text-blue-600 hover:text-blue-800">
+                      <RefreshCw className="w-4 h-4 mr-1" />
+                      선택 재시도
+                    </Button>
+                    <Button onClick={deleteSelectedFailedTasks} variant="destructive" size="sm">
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      실패 작업 삭제
+                    </Button>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* 실패 필터 상태일 때 특별 액션들 */}
+            {filterStatus === 'failed' && statusStats.failed > 0 && (
+              <>
+                <div className="w-px h-6 bg-gray-300 dark:bg-gray-600" />
+                <Button onClick={retryAllFailedTasks} variant="outline" size="sm" className="text-blue-600 hover:text-blue-800">
+                  <RefreshCw className="w-4 h-4 mr-1" />
+                  모든 실패 작업 재시도
+                </Button>
+                <Button onClick={clearAllFailedTasks} variant="destructive" size="sm">
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  모든 실패 작업 삭제
+                </Button>
               </>
             )}
           </div>
@@ -597,184 +769,430 @@ export function DownloadManager() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredTasks.map((task) => (
-            <Card 
-              key={task.jobId} 
-              className={`overflow-hidden transition-all duration-200 hover:shadow-md cursor-pointer
-                ${selectedTasks.includes(task.jobId) 
-                  ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950' 
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              onClick={() => toggleSelectTask(task.jobId)}
-            >
-              <div className="p-4">
-                <div className="flex items-start justify-between">
-                  {/* 왼쪽: 체크박스, 제목, 아티스트 */}
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <input
-                      type="checkbox"
-                      checked={selectedTasks.includes(task.jobId)}
-                      onChange={(e) => {
-                        e.stopPropagation()
-                        toggleSelectTask(task.jobId)
-                      }}
-                      className="w-4 h-4 mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    
-                    {/* 썸네일 (있는 경우) */}
-                    {task.coverUrl && (
-                      <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex-shrink-0">
-                        <Image 
-                          src={task.coverUrl} 
-                          alt="Cover" 
-                          width={48}
-                          height={48}
-                          className="w-full h-full object-cover"
-                          unoptimized
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none'
+          {/* 실패 필터 상태일 때 스크롤 가능한 컨테이너 */}
+          {filterStatus === 'failed' ? (
+            <div className="max-h-96 overflow-y-auto space-y-3 pr-2 border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  실패한 다운로드 목록
+                </h3>
+                <Badge variant="destructive" className="text-sm">
+                  {filteredTasks.length}개
+                </Badge>
+              </div>
+              {filteredTasks.map((task) => (
+                <Card 
+                  key={task.jobId} 
+                  className={`overflow-hidden transition-all duration-200 hover:shadow-md cursor-pointer
+                    ${selectedTasks.includes(task.jobId) 
+                      ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950' 
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                    }`}
+                  onClick={() => toggleSelectTask(task.jobId)}
+                >
+                  <div className="p-4">
+                    <div className="flex items-start justify-between">
+                      {/* 왼쪽: 체크박스, 제목, 아티스트 */}
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedTasks.includes(task.jobId)}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            toggleSelectTask(task.jobId)
                           }}
+                          className="w-4 h-4 mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
+                        
+                        {/* 썸네일 (있는 경우) */}
+                        {task.coverUrl && (
+                          <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex-shrink-0">
+                            <Image 
+                              src={task.coverUrl} 
+                              alt="Cover" 
+                              width={48}
+                              height={48}
+                              className="w-full h-full object-cover"
+                              unoptimized
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none'
+                              }}
+                            />
+                          </div>
+                        )}
+                        
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate" title={task.title}>
+                              {truncateMiddle(task.title, 35)}
+                            </h3>
+                            {task.type && (
+                              <Badge 
+                                variant={task.type === 'youtube' ? 'destructive' : 'default'}
+                                className="text-xs"
+                              >
+                                {task.type === 'youtube' ? 'YouTube' : task.type === 'melon' ? 'Melon' : 'Playlist'}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 truncate mb-2" title={task.artist}>
+                            {truncateMiddle(task.artist, 30)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 오른쪽: 상태와 컨트롤 버튼 */}
+                      <div className="flex items-center gap-3 ml-4">
+                        <div className="flex items-center gap-2">
+                          {getStatusIcon(task.status)}
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            {getStatusLabel(task.status)}
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center gap-1">
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              retryDownload(task)
+                            }}
+                            variant="ghost"
+                            size="sm"
+                            className="w-8 h-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900"
+                            title="재시도"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              deleteFailedTasks([task.jobId])
+                            }}
+                            variant="ghost"
+                            size="sm"
+                            className="w-8 h-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900"
+                            title="삭제"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* 하단 상태 메시지 */}
+                    {task.status === 'failed' && task.error && (
+                      <div className="mt-3">
+                        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-2 flex-1">
+                              <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-red-800 dark:text-red-200 mb-1">다운로드 실패</p>
+                                <p className="text-sm text-red-700 dark:text-red-300">{task.error}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  retryDownload(task)
+                                }}
+                                size="sm"
+                                variant="outline"
+                                className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                              >
+                                <RefreshCw className="w-3 h-3 mr-1" />
+                                재시도
+                              </Button>
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  deleteFailedTasks([task.jobId])
+                                }}
+                                size="sm"
+                                variant="outline"
+                                className="text-red-600 border-red-300 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-3 h-3 mr-1" />
+                                삭제
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate" title={task.title}>
-                          {truncateMiddle(task.title, 35)}
-                        </h3>
-                        {task.type && (
-                          <Badge 
-                            variant={task.type === 'youtube' ? 'destructive' : 'default'}
-                            className="text-xs"
-                          >
-                            {task.type === 'youtube' ? 'YouTube' : task.type === 'melon' ? 'Melon' : 'Playlist'}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate mb-2" title={task.artist}>
-                        {truncateMiddle(task.artist, 30)}
-                      </p>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            /* 일반 목록 (기존 코드) */
+            filteredTasks.map((task) => (
+              <Card 
+                key={task.jobId} 
+                className={`overflow-hidden transition-all duration-200 hover:shadow-md cursor-pointer
+                  ${selectedTasks.includes(task.jobId) 
+                    ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950' 
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}
+                onClick={() => toggleSelectTask(task.jobId)}
+              >
+                <div className="p-4">
+                  <div className="flex items-start justify-between">
+                    {/* 왼쪽: 체크박스, 제목, 아티스트 */}
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedTasks.includes(task.jobId)}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          toggleSelectTask(task.jobId)
+                        }}
+                        className="w-4 h-4 mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
                       
-                      {/* 진행률 바 (진행 중/대기 중/중지된 작업만) */}
-                      {(task.status === 'processing' || task.status === 'queued' || task.status === 'paused') && (
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-xs text-gray-500">
-                            <span>진행률</span>
-                            <span>{task.progress}%</span>
-                          </div>
-                          <Progress value={task.progress} className="h-2" />
+                      {/* 썸네일 (있는 경우) */}
+                      {task.coverUrl && (
+                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex-shrink-0">
+                          <Image 
+                            src={task.coverUrl} 
+                            alt="Cover" 
+                            width={48}
+                            height={48}
+                            className="w-full h-full object-cover"
+                            unoptimized
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
                         </div>
                       )}
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate" title={task.title}>
+                            {truncateMiddle(task.title, 35)}
+                          </h3>
+                          {task.type && (
+                            <Badge 
+                              variant={task.type === 'youtube' ? 'destructive' : 'default'}
+                              className="text-xs"
+                            >
+                              {task.type === 'youtube' ? 'YouTube' : task.type === 'melon' ? 'Melon' : 'Playlist'}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 truncate mb-2" title={task.artist}>
+                          {truncateMiddle(task.artist, 30)}
+                        </p>
+                        
+                        {/* 진행률 바 (진행 중/대기 중/중지된 작업만) */}
+                        {(task.status === 'processing' || task.status === 'queued' || task.status === 'paused') && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs text-gray-500">
+                              <span>진행률</span>
+                              <span>{task.progress}%</span>
+                            </div>
+                            <Progress value={task.progress} className="h-2" />
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* 오른쪽: 상태와 컨트롤 버튼 */}
-                  <div className="flex items-center gap-3 ml-4">
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(task.status)}
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        {getStatusLabel(task.status)}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center gap-1">
-                      {task.status === 'processing' && (
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            pauseDownload(task.jobId)
-                          }}
-                          variant="ghost"
-                          size="sm"
-                          className="w-8 h-8 p-0 text-orange-500 hover:text-orange-700 hover:bg-orange-100 dark:hover:bg-orange-900"
-                          title="중지"
-                        >
-                          <Pause className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {task.status === 'paused' && (
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            resumeDownload(task.jobId)
-                          }}
-                          variant="ghost"
-                          size="sm"
-                          className="w-8 h-8 p-0 text-green-500 hover:text-green-700 hover:bg-green-100 dark:hover:bg-green-900"
-                          title="재개"
-                        >
-                          <Play className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {(task.status === 'processing' || task.status === 'queued' || task.status === 'paused') && (
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            cancelDownload(task.jobId)
-                          }}
-                          variant="ghost"
-                          size="sm"
-                          className="w-8 h-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900"
-                          title="취소"
-                        >
-                          <Square className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {task.status === 'completed' && (
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            removeCompletedTask(task.jobId)
-                          }}
-                          variant="ghost"
-                          size="sm"
-                          className="w-8 h-8 p-0 text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"
-                          title="제거"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      )}
+                    {/* 오른쪽: 상태와 컨트롤 버튼 */}
+                    <div className="flex items-center gap-3 ml-4">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(task.status)}
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {getStatusLabel(task.status)}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-1">
+                        {task.status === 'processing' && (
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              pauseDownload(task.jobId)
+                            }}
+                            variant="ghost"
+                            size="sm"
+                            className="w-8 h-8 p-0 text-orange-500 hover:text-orange-700 hover:bg-orange-100 dark:hover:bg-orange-900"
+                            title="중지"
+                          >
+                            <Pause className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {task.status === 'paused' && (
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              resumeDownload(task.jobId)
+                            }}
+                            variant="ghost"
+                            size="sm"
+                            className="w-8 h-8 p-0 text-green-500 hover:text-green-700 hover:bg-green-100 dark:hover:bg-green-900"
+                            title="재개"
+                          >
+                            <Play className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {(task.status === 'processing' || task.status === 'queued' || task.status === 'paused') && (
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              cancelDownload(task.jobId)
+                            }}
+                            variant="ghost"
+                            size="sm"
+                            className="w-8 h-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900"
+                            title="취소"
+                          >
+                            <Square className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {task.status === 'failed' && (
+                          <>
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                retryDownload(task)
+                              }}
+                              variant="ghost"
+                              size="sm"
+                              className="w-8 h-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900"
+                              title="재시도"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                deleteFailedTasks([task.jobId])
+                              }}
+                              variant="ghost"
+                              size="sm"
+                              className="w-8 h-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900"
+                              title="삭제"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
+                        {task.status === 'completed' && (
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              removeCompletedTask(task.jobId)
+                            }}
+                            variant="ghost"
+                            size="sm"
+                            className="w-8 h-8 p-0 text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"
+                            title="제거"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
+                  
+                  {/* 하단 상태 메시지 */}
+                  {task.status === 'failed' && task.error && (
+                    <div className="px-4 pb-4">
+                      <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-2 flex-1">
+                            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-red-800 dark:text-red-200 mb-1">다운로드 실패</p>
+                              <p className="text-sm text-red-700 dark:text-red-300">{task.error}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                retryDownload(task)
+                              }}
+                              size="sm"
+                              variant="outline"
+                              className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                            >
+                              <RefreshCw className="w-3 h-3 mr-1" />
+                              재시도
+                            </Button>
+                            <Button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                deleteFailedTasks([task.jobId])
+                              }}
+                              size="sm"
+                              variant="outline"
+                              className="text-red-600 border-red-300 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-3 h-3 mr-1" />
+                              삭제
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {task.status === 'completed' && (
+                    <div className="px-4 pb-4">
+                      <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <p className="text-sm text-green-700 dark:text-green-300">다운로드가 완료되었습니다.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {task.status === 'paused' && (
+                    <div className="px-4 pb-4">
+                      <div className="p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <Pause className="w-4 h-4 text-orange-500" />
+                          <p className="text-sm text-orange-700 dark:text-orange-300">다운로드가 중지되었습니다.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* 실패 상태 전용 안내 메시지 */}
+      {filterStatus === 'failed' && statusStats.failed > 0 && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="font-medium text-red-800 dark:text-red-200 mb-1">
+                실패한 다운로드 {statusStats.failed}개
+              </h3>
+              <p className="text-sm text-red-700 dark:text-red-300 mb-3">
+                네트워크 오류, 동영상 삭제, 또는 기타 문제로 다운로드에 실패한 항목들입니다. 
+                개별 재시도하거나 일괄로 처리할 수 있습니다.
+              </p>
+              <div className="flex gap-2">
+                <Button onClick={retryAllFailedTasks} size="sm" className="bg-blue-600 hover:bg-blue-700">
+                  <RefreshCw className="w-4 h-4 mr-1" />
+                  모두 재시도
+                </Button>
+                <Button onClick={clearAllFailedTasks} variant="outline" size="sm" className="text-red-600 border-red-300 hover:bg-red-50">
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  모두 삭제
+                </Button>
               </div>
-              
-              {/* 하단 상태 메시지 */}
-              {task.status === 'failed' && task.error && (
-                <div className="px-4 pb-4">
-                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                      <p className="text-sm text-red-700 dark:text-red-300">{task.error}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {task.status === 'completed' && (
-                <div className="px-4 pb-4">
-                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-500" />
-                      <p className="text-sm text-green-700 dark:text-green-300">다운로드가 완료되었습니다.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {task.status === 'paused' && (
-                <div className="px-4 pb-4">
-                  <div className="p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Pause className="w-4 h-4 text-orange-500" />
-                      <p className="text-sm text-orange-700 dark:text-orange-300">다운로드가 중지되었습니다.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </Card>
-          ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -20,6 +20,7 @@ import { DownloadManager } from "../components/DownloadManager"
 import { useMediaQuery } from "@/hooks/use-mobile"
 import { useSession } from "@/hooks/useSession"
 import { useTheme } from "@/contexts/ThemeContext"
+import { PlaylistProvider } from "@/contexts/PlaylistContext"
 import { Toaster } from "react-hot-toast"
 
 // 모바일 헤더 컴포넌트
@@ -134,71 +135,12 @@ export default function Home() {
 
   if (shareCode) {
     return (
-      <div className="flex flex-col h-screen">
-        <div className="flex flex-1 overflow-hidden">
-          <ShareLinkAccess code={shareCode || ''} />
-        </div>
-        <PlayerControls />
-        <Toaster 
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#363636',
-              color: '#fff',
-            },
-          }}
-        />
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex min-h-screen">
-      <Sidebar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab}
-        isOpen={isMobile ? sidebarOpen : true}
-        onClose={handleSidebarClose}
-      />
-      
-      <main className={`flex-1 ${isMobile ? '' : 'ml-60'}`}>
-        <div className="min-h-screen bg-background flex flex-col">
-          {/* 모바일 헤더 */}
-          {isMobile && (
-            <MobileHeader 
-              activeTab={activeTab} 
-              onMenuClick={handleMenuClick}
-            />
-          )}
-          
-          {/* 메인 콘텐츠 */}
-          <div className={`flex flex-1 overflow-hidden ${isMobile ? 'pt-14 pb-36' : 'pb-20'}`}>
-            {activeTab === "home" && <HomeContent setActiveTab={setActiveTab} />}
-            {activeTab === "youtube" && <MainContent setActiveTab={setActiveTab} />}
-            {activeTab === "melon" && <MelonChart />}
-            {activeTab === "files" && <FilesManager />}
-            {activeTab === "playlist" && <PlaylistManager />}
-            {activeTab === "recent" && <RecentPlayed />}
-            {activeTab === "downloads" && <DownloadManager />}
-            {activeTab === "shares" && <SharesManager />}
-            {activeTab === "settings" && (
-              <SettingsManager handleLogout={handleLogout} />
-            )}
+      <PlaylistProvider>
+        <div className="flex flex-col h-screen">
+          <div className="flex flex-1 overflow-hidden">
+            <ShareLinkAccess code={shareCode || ''} />
           </div>
-          
-          {/* 모바일 네비게이션 */}
-          {isMobile && activeTab !== "shares" && (
-            <div className="fixed bottom-24 left-0 right-0 z-40">
-              <MobileNavigation activeTab={activeTab} setActiveTab={setActiveTab} />
-            </div>
-          )}
-          
-          {/* 플레이어 */}
-          <div className="fixed bottom-0 left-0 right-0 z-50">
-            <PlayerControls />
-          </div>
-          
+          <PlayerControls />
           <Toaster 
             position="top-right"
             toastOptions={{
@@ -210,7 +152,70 @@ export default function Home() {
             }}
           />
         </div>
-      </main>
-    </div>
+      </PlaylistProvider>
+    )
+  }
+
+  return (
+    <PlaylistProvider>
+      <div className="flex min-h-screen">
+        <Sidebar 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab}
+          isOpen={isMobile ? sidebarOpen : true}
+          onClose={handleSidebarClose}
+        />
+        
+        <main className={`flex-1 ${isMobile ? '' : 'ml-60'}`}>
+          <div className="min-h-screen bg-background flex flex-col">
+            {/* 모바일 헤더 */}
+            {isMobile && (
+              <MobileHeader 
+                activeTab={activeTab} 
+                onMenuClick={handleMenuClick}
+              />
+            )}
+            
+            {/* 메인 콘텐츠 */}
+            <div className={`flex flex-1 overflow-hidden ${isMobile ? 'pt-14 pb-36' : 'pb-20'}`}>
+              {activeTab === "home" && <HomeContent setActiveTab={setActiveTab} />}
+              {activeTab === "youtube" && <MainContent setActiveTab={setActiveTab} />}
+              {activeTab === "melon" && <MelonChart />}
+              {activeTab === "files" && <FilesManager />}
+              {activeTab === "playlist" && <PlaylistManager />}
+              {activeTab === "recent" && <RecentPlayed />}
+              {activeTab === "downloads" && <DownloadManager />}
+              {activeTab === "shares" && <SharesManager />}
+              {activeTab === "settings" && (
+                <SettingsManager handleLogout={handleLogout} />
+              )}
+            </div>
+            
+            {/* 모바일 네비게이션 */}
+            {isMobile && activeTab !== "shares" && (
+              <div className="fixed bottom-24 left-0 right-0 z-40">
+                <MobileNavigation activeTab={activeTab} setActiveTab={setActiveTab} />
+              </div>
+            )}
+            
+            {/* 플레이어 */}
+            <div className="fixed bottom-0 left-0 right-0 z-50">
+              <PlayerControls />
+            </div>
+          </div>
+        </main>
+        
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: '#363636',
+              color: '#fff',
+            },
+          }}
+        />
+      </div>
+    </PlaylistProvider>
   )
 }
