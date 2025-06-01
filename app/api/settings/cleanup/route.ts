@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
+import { deleteAllTemporaryFiles, getCacheStats } from '@/lib/file-cache';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -109,10 +110,18 @@ export async function GET() {
     const results = await Promise.allSettled([
       getDirectorySize(ZIP_CACHE_DIR),
       getDirectorySize(TEMP_DIR),
+      getCacheStats(), // 파일 캐시 통계 추가
     ]);
 
     const zipCache = results[0].status === 'fulfilled' ? results[0].value : { files: 0, size: 0 };
     const tempFiles = results[1].status === 'fulfilled' ? results[1].value : { files: 0, size: 0 };
+    const fileCacheStats = results[2].status === 'fulfilled' ? results[2].value : {
+      totalFiles: 0,
+      temporaryFiles: 0,
+      permanentFiles: 0,
+      totalSize: 0,
+      temporarySize: 0
+    };
 
     return NextResponse.json({
       zipCache: {
@@ -125,9 +134,18 @@ export async function GET() {
         size: tempFiles.size,
         path: TEMP_DIR
       },
+      fileCache: {
+        totalFiles: fileCacheStats.totalFiles,
+        temporaryFiles: fileCacheStats.temporaryFiles,
+        permanentFiles: fileCacheStats.permanentFiles,
+        totalSize: fileCacheStats.totalSize,
+        temporarySize: fileCacheStats.temporarySize,
+        totalSizeMB: Math.round(fileCacheStats.totalSize / 1024 / 1024 * 100) / 100,
+        temporarySizeMB: Math.round(fileCacheStats.temporarySize / 1024 / 1024 * 100) / 100,
+      },
       total: {
-        files: zipCache.files + tempFiles.files,
-        size: zipCache.size + tempFiles.size
+        files: zipCache.files + tempFiles.files + fileCacheStats.totalFiles,
+        size: zipCache.size + tempFiles.size + fileCacheStats.totalSize
       }
     });
 
@@ -149,7 +167,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const url = new URL(request.url);
-    const type = url.searchParams.get('type'); // 'cache', 'temp', 'all'
+    const type = url.searchParams.get('type'); // 'cache', 'temp', 'fileCache', 'all'
     const maxAgeHours = url.searchParams.get('maxAge'); // 시간 단위
     
     const maxAge = maxAgeHours ? parseInt(maxAgeHours) * 60 * 60 * 1000 : undefined; // 밀리초로 변환
@@ -184,6 +202,21 @@ export async function DELETE(request: NextRequest) {
           totalStats.deletedFiles += stats.deletedFiles;
           totalStats.deletedSize += stats.deletedSize;
           totalStats.errors.push(...stats.errors.map(e => `임시파일: ${e}`));
+        })
+      );
+    }
+
+    // 파일 캐시 정리 추가
+    if (type === 'fileCache' || type === 'all') {
+      operations.push(
+        deleteAllTemporaryFiles().then(result => {
+          totalStats.deletedFiles += result.deletedCount;
+          totalStats.deletedSize += result.freedSpace;
+          if (result.deletedCount === 0) {
+            totalStats.errors.push('파일 캐시: 삭제할 임시 파일이 없습니다.');
+          }
+        }).catch(error => {
+          totalStats.errors.push(`파일 캐시: ${error.message || '알 수 없는 오류'}`);
         })
       );
     }

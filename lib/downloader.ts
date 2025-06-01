@@ -10,6 +10,12 @@ import {
   emitPlaylistItemProgress,
   emitPlaylistItemComplete
 } from './socket-server';
+import { 
+  findDuplicateFile, 
+  addToFileCache, 
+  copyFileFromCache, 
+  cleanupTemporaryFiles 
+} from './file-cache';
 import { getBinaryPaths } from './utils/binary-installer';
 import https from 'https';
 import http from 'http';
@@ -471,6 +477,52 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
     
     // 멜론차트 여부에 따라 그룹 타입 결정
     const isMelonChart = options.isMelonChart || false;
+    const titleForFile = isMelonChart && options.title ? options.title : info.title;
+    const artistForFile = isMelonChart && options.artist ? options.artist : info.uploader;
+    
+    // 중복 파일 검사
+    const duplicateFile = await findDuplicateFile(titleForFile, artistForFile, 'mp3');
+    if (duplicateFile) {
+      console.log(`중복 파일 재사용: ${titleForFile} - ${artistForFile}`);
+      
+      // 캐시에서 복사
+      const groupType = isMelonChart ? FileGroupType.MELON_CHART : FileGroupType.YOUTUBE_SINGLE;
+      const groupName = isMelonChart ? `TOP${options.chartSize || 30}` : 'single';
+      
+      const copiedFile = await copyFileFromCache(
+        duplicateFile.id,
+        groupType,
+        groupName,
+        options.rank
+      );
+      
+      if (copiedFile) {
+        // 복사된 파일의 전체 정보 조회
+        const fullFileInfo = await prisma.file.findUnique({
+          where: { id: copiedFile.id }
+        });
+        
+        // 다운로드 완료 업데이트
+        await prisma.downloadQueue.update({
+          where: { id: queueId },
+          data: {
+            status: DownloadStatus.COMPLETED,
+            progress: 100,
+            fileId: copiedFile.id
+          }
+        });
+        
+        // 소켓 이벤트 발신
+        emitDownloadStatusUpdate(queueId, DownloadStatus.COMPLETED, 100, { fileId: copiedFile.id });
+        if (fullFileInfo) {
+          emitDownloadComplete(queueId, copiedFile.id, fullFileInfo);
+        }
+        
+        return { id: copiedFile.id, path: copiedFile.path };
+      }
+    }
+    
+    // 그룹 타입과 이름 설정
     const groupType = isMelonChart ? FileGroupType.MELON_CHART : FileGroupType.YOUTUBE_SINGLE;
     const groupName = isMelonChart ? `TOP${options.chartSize || 30}` : 'single';
     
@@ -480,8 +532,6 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
     
     // 파일명 생성 (멜론차트는 순위 포함, 가수명 포함)
     // 멜론차트의 경우 원본 제목과 아티스트 정보를 사용
-    const titleForFile = isMelonChart && options.title ? options.title : info.title;
-    const artistForFile = isMelonChart && options.artist ? options.artist : info.uploader;
     const fileName = generateFileName(groupType, titleForFile, 'mp3', options.rank, artistForFile);
     const outputPath = path.join(groupFolder, fileName);
     tempFilePath = outputPath;
@@ -592,6 +642,25 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
                   rank: options.rank || null,
                 }
               });
+              
+              // 파일 캐시에 추가 (임시 파일로 마킹)
+              await addToFileCache(
+                titleForFile || '제목 없음',
+                artistForFile || '알 수 없는 아티스트',
+                'mp3',
+                fileSize,
+                info.duration || 0,
+                outputPath,
+                coverImagePath || info.thumbnail || null,
+                url,
+                groupType,
+                groupName,
+                options.rank || null,
+                true // 임시 파일로 마킹
+              );
+              
+              // 임시 파일 정리 (200개 초과 시)
+              await cleanupTemporaryFiles();
               
               // 커버 이미지 파일은 썸네일로 사용하기 위해 유지
               // (삭제하지 않음)

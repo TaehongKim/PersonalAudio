@@ -3,6 +3,7 @@ import { parse } from 'url';
 import next from 'next';
 import { initSocketServer } from './lib/socket-server';
 import { ensureBinaries } from './lib/utils/binary-installer';
+import { recoverDownloadQueue, cleanupCompletedQueue } from './lib/queue-recovery';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -16,16 +17,24 @@ const handle = app.getRequestHandler();
 
 // 서버 초기화 함수
 async function initServer() {
-  console.log('서버 초기화 중...');
+  console.log('🚀 서버 초기화 중...');
   
   // 스토리지 디렉토리 확인
   const storagePath = process.env.MEDIA_STORAGE_PATH || path.join(process.cwd(), 'storage');
   await fs.mkdir(storagePath, { recursive: true });
-  console.log(`스토리지 디렉터리 확인: ${storagePath}`);
+  console.log(`📁 스토리지 디렉터리 확인: ${storagePath}`);
   
   // 필수 바이너리 확인 및 설치
-  console.log('필수 바이너리 확인 중...');
+  console.log('🔧 필수 바이너리 확인 중...');
   await ensureBinaries();
+  
+  // 다운로드 큐 복구
+  await recoverDownloadQueue();
+  
+  // 완료된 큐 정리 (서버 시작 시)
+  await cleanupCompletedQueue();
+  
+  console.log('✅ 서버 초기화 완료');
 }
 
 app.prepare().then(async () => {

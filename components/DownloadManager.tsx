@@ -40,6 +40,21 @@ interface QueueItem {
   data?: any
 }
 
+interface QueueSummary {
+  pending: number
+  processing: number
+  completed: number
+  failed: number
+  total: number
+  recentGroups: Array<{
+    groupType: string
+    groupName: string
+    completedCount: number
+    totalCount: number
+    lastUpdated: string
+  }>
+}
+
 // 긴 텍스트를 중간에 ... 으로 줄이는 유틸리티 함수
 const truncateMiddle = (text: string, maxLength: number = 30): string => {
   if (text.length <= maxLength) return text;
@@ -59,9 +74,28 @@ export function DownloadManager() {
   const [selectedTasks, setSelectedTasks] = useState<string[]>([])
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [queueSummary, setQueueSummary] = useState<QueueSummary | null>(null)
   const socket = useSocket()
   const { isLoggedIn } = useSession()
   const { setDownloadCount } = useDownload()
+
+  // 큐 상태 요약 로드
+  const loadQueueSummary = useCallback(async () => {
+    if (!isLoggedIn) return
+
+    try {
+      const response = await fetch('/api/queue/status', {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setQueueSummary(data.data)
+      }
+    } catch (error) {
+      console.error('큐 상태 요약 로드 오류:', error)
+    }
+  }, [isLoggedIn])
 
   // 큐 상태 로드
   const loadQueue = useCallback(async () => {
@@ -167,10 +201,14 @@ export function DownloadManager() {
   // 초기 로드 및 주기적 업데이트
   useEffect(() => {
     loadQueue()
+    loadQueueSummary()
     // 5초마다 큐 상태 업데이트
-    const interval = setInterval(loadQueue, 5000)
+    const interval = setInterval(() => {
+      loadQueue()
+      loadQueueSummary()
+    }, 5000)
     return () => clearInterval(interval)
-  }, [loadQueue])
+  }, [loadQueue, loadQueueSummary])
 
   // 다운로드 취소
   const cancelDownload = async (jobId: string) => {
@@ -385,6 +423,87 @@ export function DownloadManager() {
             </Button>
           </div>
         </div>
+
+        {/* 큐 상태 요약 */}
+        {queueSummary && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-blue-600 dark:text-blue-400">대기 중</p>
+                  <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{queueSummary.pending}</p>
+                </div>
+                <Clock className="w-8 h-8 text-blue-500" />
+              </div>
+            </div>
+            
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg border border-yellow-200 dark:border-yellow-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-yellow-600 dark:text-yellow-400">처리 중</p>
+                  <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-300">{queueSummary.processing}</p>
+                </div>
+                <Loader2 className="w-8 h-8 text-yellow-500 animate-spin" />
+              </div>
+            </div>
+            
+            <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-green-600 dark:text-green-400">완료</p>
+                  <p className="text-2xl font-bold text-green-700 dark:text-green-300">{queueSummary.completed}</p>
+                </div>
+                <CheckCircle className="w-8 h-8 text-green-500" />
+              </div>
+            </div>
+            
+            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-200 dark:border-red-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-red-600 dark:text-red-400">실패</p>
+                  <p className="text-2xl font-bold text-red-700 dark:text-red-300">{queueSummary.failed}</p>
+                </div>
+                <AlertCircle className="w-8 h-8 text-red-500" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 최근 완료된 그룹 */}
+        {queueSummary && queueSummary.recentGroups.length > 0 && (
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold mb-3 flex items-center">
+              <Archive className="w-5 h-5 mr-2" />
+              최근 완료된 다운로드 그룹
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {queueSummary.recentGroups.slice(0, 6).map((group, index) => (
+                <div key={index} className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate" title={group.groupName}>
+                        {truncateMiddle(group.groupName, 25)}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {group.groupType === 'melon_chart' ? '🍈 멜론차트' : 
+                         group.groupType === 'youtube_playlist' ? '📋 플레이리스트' : 
+                         '🎵 단일 파일'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-green-600 dark:text-green-400">
+                        {group.completedCount}곡
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(group.lastUpdated).toLocaleDateString('ko-KR')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 검색 및 필터 */}
         <div className="flex flex-col sm:flex-row gap-4">

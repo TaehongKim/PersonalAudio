@@ -98,4 +98,40 @@ model PlayHistory {
   
   @@index([playedAt])
   @@index([fileId, playedAt])
+}
+
+model FileCache {
+  id               String    @id @default(cuid())
+  title            String
+  artist           String?
+  normalizedTitle  String    // 정규화된 제목 (비교용)
+  normalizedArtist String?   // 정규화된 아티스트 (비교용)
+  fileType         String    // MP3, MP4 등
+  fileSize         Int
+  duration         Int?      // 재생 시간 (초)
+  path             String    // 서버 파일 시스템 경로
+  thumbnailPath    String?
+  sourceUrl        String?   // 원본 URL (유튜브 등)
+  groupType        String?   // YOUTUBE_SINGLE, YOUTUBE_PLAYLIST, MELON_CHART
+  groupName        String?   // 그룹 이름 (날짜, 플레이리스트명 등)
+  rank             Int?      // 멜론차트 순위
+  isTemporary      Boolean   @default(false) // 임시 파일 여부
+  lastUsedAt       DateTime  @default(now()) // 마지막 사용 시간
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  
+  @@index([normalizedTitle, normalizedArtist])
+  @@index([isTemporary, lastUsedAt])
+  @@index([fileType])
+}
+
+model CacheStats {
+  id          String   @id @default(cuid())
+  date        DateTime @default(now()) // SQLite에서는 Date 타입 지원하지 않음
+  totalHits   Int      @default(0) // 캐시에서 파일을 찾은 횟수
+  totalMisses Int      @default(0) // 캐시에서 파일을 찾지 못한 횟수
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([date])
 } 

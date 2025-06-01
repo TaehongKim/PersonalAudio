@@ -29,6 +29,15 @@ interface TempFileStats {
     size: number;
     path: string;
   };
+  fileCache: {
+    totalFiles: number;
+    temporaryFiles: number;
+    permanentFiles: number;
+    totalSize: number;
+    temporarySize: number;
+    totalSizeMB: number;
+    temporarySizeMB: number;
+  };
   total: {
     files: number;
     size: number;
@@ -66,6 +75,25 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
   const [tempFileLoading, setTempFileLoading] = useState(false)
   const [cleanupLoading, setCleanupLoading] = useState(false)
   const [cleanupMessage, setCleanupMessage] = useState("")
+  const [cacheStats, setCacheStats] = useState<{
+    hitRatio: {
+      totalHits: number;
+      totalMisses: number;
+      totalRequests: number;
+      hitRatio: number;
+      recentStats: Array<{ date: string; hits: number; misses: number; ratio: number }>;
+    };
+    cache: {
+      totalFiles: number;
+      temporaryFiles: number;
+      permanentFiles: number;
+      totalSize: number;
+      temporarySize: number;
+      totalSizeMB: number;
+      temporarySizeMB: number;
+    };
+  } | null>(null)
+  const [cacheStatsLoading, setCacheStatsLoading] = useState(false)
 
   const handleNotifyDownloadChange = (checked: CheckedState) => {
     setNotifyDownloadComplete(checked === true)
@@ -111,6 +139,7 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
     
     loadSettings()
     loadTempFileStats() // 임시파일 현황도 같이 로드
+    loadCacheStats() // 캐시 통계도 같이 로드
   }, [])
 
   // 임시파일 현황 로드
@@ -126,6 +155,22 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
       console.error('임시파일 현황 로드 오류:', error)
     } finally {
       setTempFileLoading(false)
+    }
+  }
+
+  // 캐시 통계 로드
+  const loadCacheStats = async () => {
+    try {
+      setCacheStatsLoading(true)
+      const response = await fetch('/api/settings/cache-stats')
+      if (response.ok) {
+        const data = await response.json()
+        setCacheStats(data)
+      }
+    } catch (error) {
+      console.error('캐시 통계 로드 오류:', error)
+    } finally {
+      setCacheStatsLoading(false)
     }
   }
 
@@ -455,17 +500,62 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={loadTempFileStats}
-                  disabled={tempFileLoading}
+                  onClick={() => {
+                    loadTempFileStats()
+                    loadCacheStats()
+                  }}
+                  disabled={tempFileLoading || cacheStatsLoading}
                   className={isDark ? "border-white/20 text-white hover:bg-white/10" : ""}
                 >
-                  <RefreshCw className={`h-4 w-4 mr-1 ${tempFileLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-4 w-4 mr-1 ${(tempFileLoading || cacheStatsLoading) ? 'animate-spin' : ''}`} />
                   새로고침
                 </Button>
               </div>
               
+              {/* 캐시 효율성 */}
+              {cacheStats && (
+                <div className={`p-4 rounded-lg ${isDark ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50 border border-blue-200'}`}>
+                  <h4 className="font-medium text-blue-400 mb-3">📊 캐시 효율성</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-blue-300">
+                        {cacheStats.hitRatio.hitRatio.toFixed(1)}%
+                      </div>
+                      <div className="text-xs text-gray-400">Hit Ratio</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-semibold text-green-400">
+                        {cacheStats.hitRatio.totalHits}
+                      </div>
+                      <div className="text-xs text-gray-400">Cache Hits</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-semibold text-red-400">
+                        {cacheStats.hitRatio.totalMisses}
+                      </div>
+                      <div className="text-xs text-gray-400">Cache Misses</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-semibold text-purple-400">
+                        {cacheStats.hitRatio.totalRequests}
+                      </div>
+                      <div className="text-xs text-gray-400">Total Requests</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-xs text-gray-400 text-center">
+                    {cacheStats.hitRatio.totalRequests > 0 ? (
+                      <span>
+                        높은 Hit Ratio는 다운로드 속도 향상과 대역폭 절약을 의미합니다
+                      </span>
+                    ) : (
+                      <span>아직 충분한 데이터가 수집되지 않았습니다</span>
+                    )}
+                  </div>
+                </div>
+              )}
+              
               {tempFileStats ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {/* ZIP 캐시 */}
                   <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50 border border-blue-200'}`}>
                     <div className="flex items-center justify-between mb-2">
@@ -488,6 +578,18 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
                     </div>
                     <p className="text-lg font-bold">{formatFileSize(tempFileStats.tempFiles.size)}</p>
                     <p className="text-xs text-gray-400 mt-1">다운로드 임시 파일</p>
+                  </div>
+                  
+                  {/* 파일 캐시 */}
+                  <div className={`p-3 rounded-lg ${isDark ? 'bg-green-900/20 border border-green-500/30' : 'bg-green-50 border border-green-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-green-400">파일 캐시</span>
+                      <Badge variant="secondary" className="bg-green-600/20 text-green-300">
+                        {tempFileStats.fileCache.temporaryFiles}개
+                      </Badge>
+                    </div>
+                    <p className="text-lg font-bold">{tempFileStats.fileCache.temporarySizeMB.toFixed(1)}MB</p>
+                    <p className="text-xs text-gray-400 mt-1">중복 방지용 임시 캐시</p>
                   </div>
                   
                   {/* 전체 */}
@@ -513,7 +615,7 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
             <div className="space-y-3">
               <h3 className="font-medium">정리 작업</h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 <Button
                   onClick={() => handleCleanup('cache')}
                   disabled={cleanupLoading}
@@ -530,6 +632,15 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
                   임시 파일 정리
+                </Button>
+                
+                <Button
+                  onClick={() => handleCleanup('temp')}
+                  disabled={cleanupLoading}
+                  className={isDark ? "bg-green-600 hover:bg-green-700" : "bg-green-500 hover:bg-green-600"}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  파일 캐시 정리
                 </Button>
                 
                 <Button
