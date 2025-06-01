@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from 'react-toastify'
 import { usePlayer } from '@/contexts/PlayerContext'
+import { GlobalLayout } from '@/components/GlobalLayout'
 import Image from 'next/image'
 
 interface SharedFileData {
@@ -337,249 +338,248 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
-          <div className="animate-pulse">
-            <div className="h-8 bg-white/10 rounded w-1/3 mb-4"></div>
-            <div className="h-32 bg-white/10 rounded mb-4"></div>
-            <div className="space-y-3">
-              <div className="h-20 bg-white/10 rounded"></div>
-              <div className="h-20 bg-white/10 rounded"></div>
-              <div className="h-20 bg-white/10 rounded"></div>
-            </div>
+      <GlobalLayout showNavigation={false}>
+        <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-400 mx-auto mb-4" />
+            <p>공유 데이터를 불러오는 중...</p>
           </div>
         </div>
-      </div>
+      </GlobalLayout>
     )
   }
 
   if (error || !shareData) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
-          <Card className="bg-red-900/20 border-red-500/30">
-            <CardContent className="p-6">
-              <h1 className="text-2xl font-bold text-red-400 mb-2">오류 발생</h1>
-              <p className="text-gray-300">{error || '공유 데이터를 찾을 수 없습니다.'}</p>
-            </CardContent>
-          </Card>
+      <GlobalLayout showNavigation={false}>
+        <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8">
+          <div className="max-w-4xl mx-auto">
+            <Card className="bg-red-900/20 border-red-500/30">
+              <CardContent className="p-6">
+                <h1 className="text-2xl font-bold text-red-400 mb-2">오류 발생</h1>
+                <p className="text-gray-300">{error || '공유 데이터를 찾을 수 없습니다.'}</p>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-      </div>
+      </GlobalLayout>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">공유된 파일</h1>
-            <p className="text-gray-400">
-              {formatDate(shareData.createdAt)}에 공유됨 • {shareData.files.length}개 파일
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={handleBulkDownload}
-              className="bg-blue-600 text-white hover:bg-blue-700"
-              disabled={shareData.files.length === 0}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              전체 다운로드
-            </Button>
-            <Button
-              onClick={handleCopyLink}
-              className="bg-white text-black hover:bg-gray-200"
-            >
-              <Copy className="w-4 h-4 mr-2" />
-              링크 복사
-            </Button>
-          </div>
-        </div>
-
-        <Card className="bg-white/5 border-white/10 mb-6">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-2">
-                  <Share2 className="w-5 h-5 text-purple-400" />
-                  <span className="font-medium">공유 정보</span>
-                </div>
-                <div className="text-sm text-gray-400">
-                  {shareData.maxDownloads && (
-                    <span className="mr-3">
-                      다운로드 제한: {shareData.currentDownloads}/{shareData.maxDownloads}회
-                    </span>
-                  )}
-                  {shareData.expiresAt && (
-                    <span>
-                      만료일: {formatDate(shareData.expiresAt)}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button
-                  className={`h-10 w-10 ${
-                    playerState.shuffle 
-                      ? 'bg-green-600 hover:bg-green-700' 
-                      : 'bg-green-600/20 hover:bg-green-600/30'
-                  }`}
-                  size="icon"
-                  onClick={toggleShuffle}
-                  disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
-                  title="셔플"
-                >
-                  <Shuffle className="w-4 h-4" />
-                </Button>
-                <Button
-                  className="bg-green-600/20 hover:bg-green-600/30 h-10 w-10"
-                  size="icon"
-                  onClick={previous}
-                  disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
-                >
-                  <SkipBack className="w-5 h-5" />
-                </Button>
-                <Button
-                  className="bg-green-600 hover:bg-green-700 px-4 h-10"
-                  onClick={handlePlayAll}
-                  disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
-                >
-                  {playerState.isPlaying ? (
-                    <Pause className="w-5 h-5 mr-2" />
-                  ) : (
-                    <Play className="w-5 h-5 mr-2" />
-                  )}
-                  전체 재생
-                </Button>
-                <Button
-                  className="bg-green-600/20 hover:bg-green-600/30 h-10 w-10"
-                  size="icon"
-                  onClick={next}
-                  disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
-                >
-                  <SkipForward className="w-5 h-5" />
-                </Button>
-                <Button
-                  className={`h-10 w-10 ${
-                    playerState.repeat !== 'none'
-                      ? 'bg-green-600 hover:bg-green-700' 
-                      : 'bg-green-600/20 hover:bg-green-600/30'
-                  }`}
-                  size="icon"
-                  onClick={toggleRepeat}
-                  disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
-                  title={playerState.repeat === 'none' ? '반복 끄기' : playerState.repeat === 'all' ? '전체 반복' : '한 곡 반복'}
-                >
-                  {playerState.repeat === 'one' ? (
-                    <Repeat1 className="w-4 h-4" />
-                  ) : (
-                    <Repeat className="w-4 h-4" />
-                  )}
-                </Button>
-              </div>
+    <GlobalLayout showNavigation={false}>
+      <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">공유된 파일</h1>
+              <p className="text-gray-400">
+                {formatDate(shareData.createdAt)}에 공유됨 • {shareData.files.length}개 파일
+              </p>
             </div>
-          </CardContent>
-        </Card>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleBulkDownload}
+                className="bg-blue-600 text-white hover:bg-blue-700"
+                disabled={shareData.files.length === 0}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                전체 다운로드
+              </Button>
+              <Button
+                onClick={handleCopyLink}
+                className="bg-white text-black hover:bg-gray-200"
+              >
+                <Copy className="w-4 h-4 mr-2" />
+                링크 복사
+              </Button>
+            </div>
+          </div>
 
-        <ScrollArea className="h-[calc(100vh-20rem)] rounded-lg">
-          <div className="space-y-2 pr-4">
-            {shareData.files.map((file) => {
-              const thumbnailUrl = getThumbnailUrl(file);
-              
-              return (
-                <Card key={file.id} className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors">
-                  <CardContent className="p-3">
-                    <div className="flex items-center">
-                      <div className="relative">
-                        <div className="w-12 h-12 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
-                          {thumbnailUrl ? (
-                            <Image
-                              src={thumbnailUrl}
-                              alt={`${file.title} 썸네일`}
-                              width={48}
-                              height={48}
-                              className="w-full h-full object-cover"
-                              unoptimized
-                              onError={(e) => {
-                                // 이미지 로드 실패 시 기본 아이콘으로 변경
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                                const parent = target.parentElement;
-                                if (parent) {
-                                  parent.innerHTML = file.fileType.toLowerCase().includes('mp3') 
-                                    ? '<div class="text-gray-400 text-xl">🎵</div>' 
-                                    : '<div class="text-gray-400 text-xl">📄</div>';
-                                }
-                              }}
-                            />
-                          ) : (
-                            <div className="text-gray-400 text-xl">
-                              {file.fileType.toLowerCase().includes('mp3') ? '🎵' : '📄'}
-                            </div>
-                          )}
-                          
-                          {/* 현재 재생 중인 파일 표시 */}
-                          {playerState.currentFile?.id === file.id && playerState.isPlaying && (
-                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                              <div className="text-green-400 animate-pulse">
-                                <Play className="h-4 w-4" fill="currentColor" />
+          <Card className="bg-white/5 border-white/10 mb-6">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <Share2 className="w-5 h-5 text-purple-400" />
+                    <span className="font-medium">공유 정보</span>
+                  </div>
+                  <div className="text-sm text-gray-400">
+                    {shareData.maxDownloads && (
+                      <span className="mr-3">
+                        다운로드 제한: {shareData.currentDownloads}/{shareData.maxDownloads}회
+                      </span>
+                    )}
+                    {shareData.expiresAt && (
+                      <span>
+                        만료일: {formatDate(shareData.expiresAt)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Button
+                    className={`h-10 w-10 ${
+                      playerState.shuffle 
+                        ? 'bg-green-600 hover:bg-green-700' 
+                        : 'bg-green-600/20 hover:bg-green-600/30'
+                    }`}
+                    size="icon"
+                    onClick={toggleShuffle}
+                    disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
+                    title="셔플"
+                  >
+                    <Shuffle className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    className="bg-green-600/20 hover:bg-green-600/30 h-10 w-10"
+                    size="icon"
+                    onClick={previous}
+                    disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
+                  >
+                    <SkipBack className="w-5 h-5" />
+                  </Button>
+                  <Button
+                    className="bg-green-600 hover:bg-green-700 px-4 h-10"
+                    onClick={handlePlayAll}
+                    disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
+                  >
+                    {playerState.isPlaying ? (
+                      <Pause className="w-5 h-5 mr-2" />
+                    ) : (
+                      <Play className="w-5 h-5 mr-2" />
+                    )}
+                    전체 재생
+                  </Button>
+                  <Button
+                    className="bg-green-600/20 hover:bg-green-600/30 h-10 w-10"
+                    size="icon"
+                    onClick={next}
+                    disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
+                  >
+                    <SkipForward className="w-5 h-5" />
+                  </Button>
+                  <Button
+                    className={`h-10 w-10 ${
+                      playerState.repeat !== 'none'
+                        ? 'bg-green-600 hover:bg-green-700' 
+                        : 'bg-green-600/20 hover:bg-green-600/30'
+                    }`}
+                    size="icon"
+                    onClick={toggleRepeat}
+                    disabled={!shareData?.files.some(f => f.fileType.toLowerCase().includes('mp3'))}
+                    title={playerState.repeat === 'none' ? '반복 끄기' : playerState.repeat === 'all' ? '전체 반복' : '한 곡 반복'}
+                  >
+                    {playerState.repeat === 'one' ? (
+                      <Repeat1 className="w-4 h-4" />
+                    ) : (
+                      <Repeat className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <ScrollArea className="h-[calc(100vh-20rem)] rounded-lg">
+            <div className="space-y-2 pr-4">
+              {shareData.files.map((file) => {
+                const thumbnailUrl = getThumbnailUrl(file);
+                
+                return (
+                  <Card key={file.id} className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors">
+                    <CardContent className="p-3">
+                      <div className="flex items-center">
+                        <div className="relative">
+                          <div className="w-12 h-12 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
+                            {thumbnailUrl ? (
+                              <Image
+                                src={thumbnailUrl}
+                                alt={`${file.title} 썸네일`}
+                                width={48}
+                                height={48}
+                                className="w-full h-full object-cover"
+                                unoptimized
+                                onError={(e) => {
+                                  // 이미지 로드 실패 시 기본 아이콘으로 변경
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                  const parent = target.parentElement;
+                                  if (parent) {
+                                    parent.innerHTML = file.fileType.toLowerCase().includes('mp3') 
+                                      ? '<div class="text-gray-400 text-xl">🎵</div>' 
+                                      : '<div class="text-gray-400 text-xl">📄</div>';
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <div className="text-gray-400 text-xl">
+                                {file.fileType.toLowerCase().includes('mp3') ? '🎵' : '📄'}
                               </div>
-                            </div>
-                          )}
+                            )}
+                            
+                            {/* 현재 재생 중인 파일 표시 */}
+                            {playerState.currentFile?.id === file.id && playerState.isPlaying && (
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                <div className="text-green-400 animate-pulse">
+                                  <Play className="h-4 w-4" fill="currentColor" />
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex-1 min-w-0 mr-4">
-                        <p className="font-medium truncate" title={file.title}>
-                          {truncateMiddle(file.title, 30)}
-                        </p>
-                        <p className="text-sm text-gray-400" title={file.artist || '알 수 없는 아티스트'}>
-                          {truncateMiddle(file.artist || '알 수 없는 아티스트', 25)} • {formatDuration(file.duration)}
-                        </p>
-                        <div className="flex items-center text-xs text-gray-500 mt-1">
-                          <Badge className="mr-2 bg-blue-600">
-                            {file.fileType.toUpperCase()}
-                          </Badge>
-                          <span>{formatFileSize(file.fileSize)}</span>
-                          {file.rank && (
-                            <Badge className="ml-2 bg-yellow-600/20 text-yellow-400 text-xs">
-                              #{file.rank}
+                        <div className="flex-1 min-w-0 mr-4">
+                          <p className="font-medium truncate" title={file.title}>
+                            {truncateMiddle(file.title, 30)}
+                          </p>
+                          <p className="text-sm text-gray-400" title={file.artist || '알 수 없는 아티스트'}>
+                            {truncateMiddle(file.artist || '알 수 없는 아티스트', 25)} • {formatDuration(file.duration)}
+                          </p>
+                          <div className="flex items-center text-xs text-gray-500 mt-1">
+                            <Badge className="mr-2 bg-blue-600">
+                              {file.fileType.toUpperCase()}
                             </Badge>
-                          )}
+                            <span>{formatFileSize(file.fileSize)}</span>
+                            {file.rank && (
+                              <Badge className="ml-2 bg-yellow-600/20 text-yellow-400 text-xs">
+                                #{file.rank}
+                              </Badge>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex space-x-2">
-                        {file.fileType.toLowerCase().includes('mp3') && (
+                        <div className="flex space-x-2">
+                          {file.fileType.toLowerCase().includes('mp3') && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={() => togglePlayFile(file)}
+                            >
+                              {playerState.currentFile?.id === file.id && playerState.isPlaying ? (
+                                <Pause className="h-4 w-4 text-green-400" fill="currentColor" />
+                              ) : (
+                                <Play className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-8 w-8"
-                            onClick={() => togglePlayFile(file)}
+                            onClick={() => handleDownload(file.id)}
                           >
-                            {playerState.currentFile?.id === file.id && playerState.isPlaying ? (
-                              <Pause className="h-4 w-4 text-green-400" fill="currentColor" />
-                            ) : (
-                              <Play className="h-4 w-4" />
-                            )}
+                            <Download className="h-4 w-4" />
                           </Button>
-                        )}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          onClick={() => handleDownload(file.id)}
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
-        </ScrollArea>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+          </ScrollArea>
+        </div>
       </div>
-    </div>
+    </GlobalLayout>
   )
 }

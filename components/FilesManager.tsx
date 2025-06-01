@@ -41,6 +41,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label"
 import { usePlayer } from "@/contexts/PlayerContext"
 import { useSocket } from "@/hooks/useSocket"
+import { useMediaQuery } from "@/hooks/use-mobile"
 import { toast } from "react-toastify"
 import { FileItem } from '@/components/FileItem';
 
@@ -55,6 +56,18 @@ function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
       timeout = setTimeout(() => resolve(func(...args)), waitFor);
     });
 }
+
+// 긴 텍스트를 중간에 ... 으로 줄이는 유틸리티 함수
+const truncateMiddle = (text: string, maxLength: number): string => {
+  if (text.length <= maxLength) return text;
+  
+  const ellipsis = '...';
+  const charsToShow = maxLength - ellipsis.length;
+  const frontChars = Math.ceil(charsToShow / 2);
+  const backChars = Math.floor(charsToShow / 2);
+  
+  return text.substring(0, frontChars) + ellipsis + text.substring(text.length - backChars);
+};
 
 // API 응답 타입 정의
 interface FileData {
@@ -230,6 +243,7 @@ export function FilesManager() {
     setVolume
   } = usePlayer()
   const socket = useSocket()
+  const isMobile = useMediaQuery("(max-width: 768px)")
 
   const loadFiles = useCallback(async () => {
       setLoading(true)
@@ -334,13 +348,15 @@ export function FilesManager() {
 
   const getGroupDisplayName = (group: FileGroup): string => {
     const baseName = getGroupTypeDisplayName(group.groupType);
+    const maxLength = isMobile ? 15 : 25; // 모바일에서는 더 짧게 축약
+    
     if (group.groupType === 'melon_chart') {
       const rankSuffix = melonRankFilter[`${group.groupType}_${group.groupName}`] ? 
         ` (TOP ${melonRankFilter[`${group.groupType}_${group.groupName}`]})` : ' (전체)';
       const filesInRank = calculateFilesInRank(`${group.groupType}_${group.groupName}`, melonRankFilter[`${group.groupType}_${group.groupName}`]);
-      return `${baseName} - ${group.groupName}${rankSuffix} (${filesInRank} / ${group.totalFiles}곡)`;
+      return `${baseName} - ${truncateMiddle(group.groupName, maxLength)}${rankSuffix} (${filesInRank} / ${group.totalFiles}곡)`;
     }
-    return `${baseName} - ${group.groupName} (${group.files.length} / ${group.totalFiles}곡)`;
+    return `${baseName} - ${truncateMiddle(group.groupName, maxLength)} (${group.files.length} / ${group.totalFiles}곡)`;
   };
   
   const toggleItemSelection = (id: string, e: React.MouseEvent) => {
@@ -1306,7 +1322,9 @@ export function FilesManager() {
                               </div>
                             ) : (
                               <div className="flex items-center space-x-1">
-                                <span className="text-sm text-gray-400">{group.groupName}</span>
+                                <span className="text-sm text-gray-400" title={group.groupName}>
+                                  {truncateMiddle(group.groupName, isMobile ? 12 : 20)}
+                                </span>
                                 <Button
                                   size="sm"
                                   variant="ghost"

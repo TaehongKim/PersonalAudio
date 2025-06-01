@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
+import { useMediaQuery } from '@/hooks/use-mobile'
 import Image from 'next/image'
 
 // 긴 텍스트를 중간에 ... 으로 줄이는 유틸리티 함수
@@ -50,6 +51,7 @@ export function Player() {
     toggleShuffle
   } = usePlayer()
   const audioRef = useRef<HTMLAudioElement>(null)
+  const isMobile = useMediaQuery("(max-width: 768px)")
 
   useEffect(() => {
     if (audioRef.current) {
@@ -128,10 +130,10 @@ export function Player() {
           
           <div className="text-xs md:text-sm min-w-0 flex-1">
             <div className="font-medium truncate" title={state.currentFile.title}>
-              {truncateMiddle(state.currentFile.title, window.innerWidth < 768 ? 20 : 30)}
+              {truncateMiddle(state.currentFile.title, isMobile ? 20 : 30)}
             </div>
             <div className="text-muted-foreground truncate" title={state.currentFile.artist || '알 수 없는 아티스트'}>
-              {truncateMiddle(state.currentFile.artist || '알 수 없는 아티스트', window.innerWidth < 768 ? 15 : 25)}
+              {truncateMiddle(state.currentFile.artist || '알 수 없는 아티스트', isMobile ? 15 : 25)}
             </div>
             {hasPlaylist && (
               <div className="text-xs text-muted-foreground">

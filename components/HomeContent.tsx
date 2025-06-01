@@ -26,7 +26,20 @@ import { Badge } from "@/components/ui/badge"
 import Image from "next/image"
 import { useTheme } from "@/contexts/ThemeContext"
 import { usePlayer } from "@/contexts/PlayerContext"
+import { useMediaQuery } from "@/hooks/use-mobile"
 import { toast } from "react-hot-toast"
+
+// 긴 텍스트를 중간에 ... 으로 줄이는 유틸리티 함수
+const truncateMiddle = (text: string, maxLength: number = 25): string => {
+  if (text.length <= maxLength) return text;
+  
+  const ellipsis = '...';
+  const charsToShow = maxLength - ellipsis.length;
+  const frontChars = Math.ceil(charsToShow / 2);
+  const backChars = Math.floor(charsToShow / 2);
+  
+  return text.substring(0, frontChars) + ellipsis + text.substring(text.length - backChars);
+};
 
 interface QuickAccessItem {
   title: string
@@ -71,6 +84,7 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
   const { theme } = useTheme()
   const { loadFile } = usePlayer()
   const isDark = theme === "dark"
+  const isMobile = useMediaQuery("(max-width: 768px)")
   
   // 상태 관리
   const [recentDownloads, setRecentDownloads] = useState<RecentDownload[]>([])
@@ -402,8 +416,18 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
                       )}
                     </div>
                     <div className="ml-3 flex-1">
-                      <p className={`text-sm font-medium ${isDark ? "text-white" : "text-gray-800"} truncate`}>{download.title}</p>
-                      <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"} truncate`}>{download.artist || '알 수 없는 아티스트'}</p>
+                      <p 
+                        className={`text-sm font-medium ${isDark ? "text-white" : "text-gray-800"} truncate`}
+                        title={download.title}
+                      >
+                        {truncateMiddle(download.title, isMobile ? 20 : 30)}
+                      </p>
+                      <p 
+                        className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"} truncate`}
+                        title={download.artist || '알 수 없는 아티스트'}
+                      >
+                        {truncateMiddle(download.artist || '알 수 없는 아티스트', isMobile ? 18 : 25)}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
@@ -569,9 +593,17 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
                   </div>
                 </div>
                 <CardContent className="p-4 md:p-3">
-                  <h3 className="font-medium text-sm md:text-xs truncate mb-1">{file.title}</h3>
-                  <p className="text-sm md:text-xs text-gray-500 dark:text-gray-400 truncate">
-                    {file.artist || '알 수 없는 아티스트'}
+                  <h3 
+                    className="font-medium text-sm md:text-xs truncate mb-1"
+                    title={file.title}
+                  >
+                    {truncateMiddle(file.title, isMobile ? 15 : 20)}
+                  </h3>
+                  <p 
+                    className="text-sm md:text-xs text-gray-500 dark:text-gray-400 truncate"
+                    title={file.artist || '알 수 없는 아티스트'}
+                  >
+                    {truncateMiddle(file.artist || '알 수 없는 아티스트', isMobile ? 12 : 18)}
                   </p>
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-xs text-gray-500">

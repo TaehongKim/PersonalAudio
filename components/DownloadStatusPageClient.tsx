@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { notFound } from 'next/navigation';
 import DownloadStatus from '@/components/DownloadStatus';
+import { GlobalLayout } from '@/components/GlobalLayout';
 
 export default function DownloadStatusPageClient({ id }: { id: string }) {
   const [isValidDownload, setIsValidDownload] = useState<boolean | null>(null);
@@ -28,9 +29,11 @@ export default function DownloadStatusPageClient({ id }: { id: string }) {
   // 로딩 중 상태
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
+      <GlobalLayout showNavigation={false}>
+        <div className="flex justify-center items-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+      </GlobalLayout>
     );
   }
 
@@ -40,8 +43,10 @@ export default function DownloadStatusPageClient({ id }: { id: string }) {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <DownloadStatus downloadId={id} />
-    </div>
+    <GlobalLayout showNavigation={false}>
+      <div className="container mx-auto py-8 px-4">
+        <DownloadStatus downloadId={id} />
+      </div>
+    </GlobalLayout>
   );
 }

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { useSession } from "@/hooks/useSession"
+import { useMediaQuery } from "@/hooks/use-mobile"
 import { toast } from 'react-toastify'
 import type { ChartSong } from '@/types/chart'
 import Image from 'next/image'
@@ -38,6 +39,7 @@ export function MelonChart() {
   const intervalRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const lastUpdateRef = useRef<string>("")
   const [filteredSongs, setFilteredSongs] = useState<ChartSong[]>([])
+  const isMobile = useMediaQuery("(max-width: 768px)")
   
   const { isLoggedIn, isLoading: sessionLoading } = useSession()
   
@@ -385,43 +387,106 @@ export function MelonChart() {
               <span className="ml-2">차트 로딩 중...</span>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-              {filteredSongs.map((song) => (
-                <Card key={song.rank} className="bg-white/5 border-white/10 overflow-hidden">
-                  <div className="relative">
-                    <Image
-                      src={song.coverUrl || "/placeholder.svg"}
-                      alt={`${song.title} album cover`}
-                      width={240}
-                      height={240}
-                      className="w-full aspect-square object-cover"
-                      unoptimized
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = "/placeholder.svg";
-                      }}
-                    />
-                    <div className="absolute top-2 left-2">
-                      <Badge className="bg-green-600 px-2 py-1">{song.rank}</Badge>
-                    </div>
-                  </div>
-                  <CardContent className="p-3">
-                    <p className="font-medium truncate" title={song.title}>
-                      {truncateMiddle(song.title, 18)}
-                    </p>
-                    <p className="text-sm text-gray-400 truncate" title={song.artist}>
-                      {truncateMiddle(song.artist, 16)}
-                    </p>
-                    {song.duration && (
-                      <p className="text-xs text-gray-500 flex items-center mt-1">
-                        <Clock className="w-3 h-3 mr-1" />
-                        {song.duration}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <>
+              {/* 모바일 레이아웃 */}
+              {isMobile ? (
+                <div className="space-y-3">
+                  {filteredSongs.map((song) => (
+                    <Card key={song.rank} className="bg-white/5 border-white/10 overflow-hidden">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-3">
+                          {/* 작은 썸네일 */}
+                          <div className="relative flex-shrink-0">
+                            <Image
+                              src={song.coverUrl || "/placeholder.svg"}
+                              alt={`${song.title} album cover`}
+                              width={60}
+                              height={60}
+                              className="w-16 h-16 rounded-lg object-cover"
+                              unoptimized
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.src = "/placeholder.svg";
+                              }}
+                            />
+                            <div className="absolute -top-1 -left-1">
+                              <Badge className="bg-green-600 px-1.5 py-0.5 text-xs">{song.rank}</Badge>
+                            </div>
+                          </div>
+                          
+                          {/* 확장된 노래 정보 */}
+                          <div className="flex-1 min-w-0">
+                            <p 
+                              className="font-medium text-white text-sm leading-tight mb-1" 
+                              title={song.title}
+                            >
+                              {truncateMiddle(song.title, 35)}
+                            </p>
+                            <p 
+                              className="text-gray-400 text-xs mb-1" 
+                              title={song.artist}
+                            >
+                              {truncateMiddle(song.artist, 30)}
+                            </p>
+                            {song.duration && (
+                              <p className="text-gray-500 text-xs flex items-center">
+                                <Clock className="w-3 h-3 mr-1" />
+                                {song.duration}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                /* 데스크톱 레이아웃 (기존) */
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                  {filteredSongs.map((song) => (
+                    <Card key={song.rank} className="bg-white/5 border-white/10 overflow-hidden">
+                      <div className="relative">
+                        <Image
+                          src={song.coverUrl || "/placeholder.svg"}
+                          alt={`${song.title} album cover`}
+                          width={240}
+                          height={240}
+                          className="w-full aspect-square object-cover"
+                          unoptimized
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = "/placeholder.svg";
+                          }}
+                        />
+                        <div className="absolute top-2 left-2">
+                          <Badge className="bg-green-600 px-2 py-1">{song.rank}</Badge>
+                        </div>
+                      </div>
+                      <CardContent className="p-3">
+                        <p 
+                          className="font-medium truncate" 
+                          title={song.title}
+                        >
+                          {truncateMiddle(song.title, 25)}
+                        </p>
+                        <p 
+                          className="text-sm text-gray-400 truncate" 
+                          title={song.artist}
+                        >
+                          {truncateMiddle(song.artist, 22)}
+                        </p>
+                        {song.duration && (
+                          <p className="text-xs text-gray-500 flex items-center mt-1">
+                            <Clock className="w-3 h-3 mr-1" />
+                            {song.duration}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </>
           )}
       </div>
     </div>
