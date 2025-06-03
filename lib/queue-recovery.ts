@@ -1,5 +1,5 @@
 import { prisma } from './prisma';
-import { DownloadStatus } from './downloader';
+import { DownloadStatus } from '../types/download-status';
 import { processQueue } from './queue-manager';
 
 /**
@@ -202,7 +202,7 @@ export async function getQueueSummary(): Promise<{
       lastUpdated: Date;
     }>();
 
-    recentCompletedFiles.forEach(file => {
+    recentCompletedFiles.forEach((file: { groupType: string | null, groupName: string | null, createdAt: Date }) => {
       if (file.groupType && file.groupName) {
         const key = `${file.groupType}:${file.groupName}`;
         const existing = groupMap.get(key);

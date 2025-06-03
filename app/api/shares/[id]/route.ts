@@ -62,7 +62,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
         success: true,
         message: '공유 링크가 성공적으로 삭제되었습니다.'
       });
-    } catch (deleteError) {
+    } catch {
       // 삭제 실패 시 (존재하지 않는 ID 등)
       return NextResponse.json(
         { error: '삭제할 공유 링크를 찾을 수 없습니다.' },

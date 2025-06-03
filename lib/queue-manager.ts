@@ -1,5 +1,6 @@
 import { prisma } from './prisma';
-import { downloadYoutubeMp3, downloadYoutubeVideo, downloadPlaylistMp3, downloadPlaylistVideo, DownloadStatus, DownloadType } from './downloader';
+import { downloadYoutubeMp3, downloadYoutubeVideo, downloadPlaylistMp3, downloadPlaylistVideo } from './downloader';
+import { DownloadStatus, DownloadType } from '../types/download-status';
 
 /**
  * 다운로드 큐 최대 동시 작업 수

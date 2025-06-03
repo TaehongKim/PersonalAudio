@@ -27,7 +27,7 @@ export async function GET() {
       expiresAt: Date | null;
       maxDownloads: number | null;
       downloads: number;
-      [key: string]: any;
+      [key: string]: unknown;
     }) => ({
       ...share,
       isExpired: share.expiresAt ? new Date() > share.expiresAt : false,

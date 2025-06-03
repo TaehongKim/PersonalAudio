@@ -90,8 +90,8 @@ async function cleanDirectory(dirPath: string, maxAge?: number): Promise<Cleanup
         console.error(`파일 삭제 오류 (${fullPath}):`, error);
       }
     }
-  } catch (error) {
-    if ((error as any).code !== 'ENOENT') {
+  } catch (error: unknown) {
+    if ((error as { code?: string }).code !== 'ENOENT') {
       stats.errors.push(`디렉토리 읽기 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
     }
   }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { use } from 'react'
 import { Share2, Download, Copy, Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -194,7 +194,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
       } else {
         throw new Error('다운로드 권한을 얻을 수 없습니다.')
       }
-    } catch (error) {
+    } catch {
       toast.error('다운로드에 실패했습니다.')
     }
   }

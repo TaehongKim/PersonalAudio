@@ -1,8 +1,8 @@
 "use client"
 
-import type React from "react"
+import * as React from 'react'
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo, memo } from "react"
 import {
   Download,
   Trash2,
@@ -47,7 +47,7 @@ import { FileItem } from '@/components/FileItem';
 
 // Debounce 유틸리티 함수
 function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
-  let timeout: NodeJS.Timeout;
+  let timeout: ReturnType<typeof setTimeout>;
   return (...args: Parameters<F>): Promise<ReturnType<F>> =>
     new Promise(resolve => {
       if (timeout) {
@@ -200,7 +200,7 @@ const getGroupTypeDisplayName = (groupType: string): string => {
   }
 }
 
-export function FilesManager() {
+export const FilesManager = memo(function FilesManager() {
   const [files, setFiles] = useState<FileData[]>([])
   const [fileGroups, setFileGroups] = useState<FileGroup[]>([])
   const [viewMode, setViewMode] = useState<'list' | 'groups'>('groups')
@@ -265,9 +265,9 @@ export function FilesManager() {
       const grouped = groupFiles(data.files)
       setFileGroups(grouped)
       
-      setIsExpanded(prevExpanded => {
+      setIsExpanded((prevExpanded: Record<string, boolean>) => {
         const newExpandedState: Record<string, boolean> = {};
-        grouped.forEach(group => {
+        grouped.forEach((group: FileGroup) => {
           const groupKey = `${group.groupType}_${group.groupName}`;
           newExpandedState[groupKey] = prevExpanded[groupKey] !== undefined ? prevExpanded[groupKey] : allGroupsExpanded;
         });
@@ -312,7 +312,7 @@ export function FilesManager() {
         const data = await response.json()
         const coverUrl = data.coverUrl
         if (coverUrl) {
-          setMelonCoverCache(prev => ({ ...prev, [cacheKey]: coverUrl }))
+          setMelonCoverCache((prev: Record<string, string>) => ({ ...prev, [cacheKey]: coverUrl }))
           return coverUrl
         }
       }
@@ -323,14 +323,14 @@ export function FilesManager() {
   }, [melonCoverCache]);
 
   useEffect(() => {
-    const melonFilesToFetch = files.filter(file => 
+    const melonFilesToFetch = files.filter((file: FileData) => 
       file.groupType === 'melon_chart' && 
       !file.thumbnailPath && 
       file.title && 
       file.artist &&
       !melonCoverCache[`${file.artist}_${file.title}`]
     );
-    melonFilesToFetch.forEach(file => {
+    melonFilesToFetch.forEach((file: FileData) => {
       if (file.title && file.artist) {
         fetchMelonCover(file.title, file.artist);
       }
@@ -338,12 +338,12 @@ export function FilesManager() {
   }, [files, fetchMelonCover, melonCoverCache]);
 
   const calculateFilesInRank = useCallback((groupKey: string, rank: number | null) => {
-    if (!rank) return fileGroups.find(g => `${g.groupType}_${g.groupName}` === groupKey)?.files.length || 0;
-    return fileGroups.find(g => `${g.groupType}_${g.groupName}` === groupKey)?.files.filter(f => f.rank && f.rank <= rank).length || 0;
+    if (!rank) return fileGroups.find((g: FileGroup) => `${g.groupType}_${g.groupName}` === groupKey)?.files.length || 0;
+    return fileGroups.find((g: FileGroup) => `${g.groupType}_${g.groupName}` === groupKey)?.files.filter((f: FileData) => f.rank && f.rank <= rank).length || 0;
   }, [fileGroups]);
 
   const filterMelonChartByRank = (groupKey: string, rank: number | null) => {
-    setMelonRankFilter(prev => ({ ...prev, [groupKey]: rank }));
+    setMelonRankFilter((prev: Record<string, number | null>) => ({ ...prev, [groupKey]: rank }));
   };
 
   const getGroupDisplayName = (group: FileGroup): string => {
@@ -361,8 +361,8 @@ export function FilesManager() {
   
   const toggleItemSelection = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setSelectedItems(prev =>
-      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    setSelectedItems((prev: string[]) =>
+      prev.includes(id) ? prev.filter((item: string) => item !== id) : [...prev, id]
     );
   };
 
@@ -370,7 +370,7 @@ export function FilesManager() {
     if (selectedItems.length === files.length) {
       setSelectedItems([]);
     } else {
-      setSelectedItems(files.map(file => file.id));
+      setSelectedItems(files.map((file: FileData) => file.id));
     }
   };
 
@@ -379,10 +379,10 @@ export function FilesManager() {
     const allSelectedInGroup = groupFileIds.every(id => selectedItems.includes(id));
     
     if (allSelectedInGroup) {
-      setSelectedItems(prev => prev.filter(id => !groupFileIds.includes(id)));
+      setSelectedItems((prev: string[]) => prev.filter((id: string) => !groupFileIds.includes(id)));
     } else {
-      setSelectedItems(prev => [
-        ...prev.filter(id => !groupFileIds.includes(id)),
+      setSelectedItems((prev: string[]) => [
+        ...prev.filter((id: string) => !groupFileIds.includes(id)),
         ...groupFileIds
       ]);
     }
@@ -445,7 +445,7 @@ export function FilesManager() {
       if (result.success) {
       await loadFiles()
       await loadStats()
-      setSelectedItems(selectedItems.filter(id => id !== fileId))
+      setSelectedItems(selectedItems.filter((id: string) => id !== fileId))
       } else {
         throw new Error(result.error || '파일 삭제 중 오류가 발생했습니다.')
       }
@@ -800,7 +800,7 @@ export function FilesManager() {
   useEffect(() => {
     if (!socket.isConnected) return
     const handleDownloadStatus = (data: any) => {
-      setDownloadQueues(prev => ({
+      setDownloadQueues((prev: Record<string, DownloadQueue>) => ({
         ...prev,
         [data.id]: {
           status: data.status,
@@ -1082,7 +1082,7 @@ export function FilesManager() {
       if (result.success) {
         await loadFiles()
         await loadStats()
-        setSelectedItems(selectedItems.filter(id => !fileIds.includes(id)))
+        setSelectedItems(selectedItems.filter((id: string) => !fileIds.includes(id)))
         
         const successCount = result.deletedCount
         const failedCount = result.requestedCount - result.deletedCount
@@ -1112,9 +1112,9 @@ export function FilesManager() {
   const toggleAllGroups = () => {
     setAllGroupsExpanded(prevAllExpanded => {
       const newAllExpandedState = !prevAllExpanded;
-      setIsExpanded(prevExpandedRecords => {
+      setIsExpanded((prevExpanded: Record<string, boolean>) => {
         const newExpandedRecords: Record<string, boolean> = {};
-        fileGroups.forEach(group => {
+        fileGroups.forEach((group: FileGroup) => {
           const groupKey = `${group.groupType}_${group.groupName}`;
           newExpandedRecords[groupKey] = newAllExpandedState;
         });
@@ -1125,7 +1125,7 @@ export function FilesManager() {
   };
 
   const toggleGroupExpansion = (groupKey: string) => {
-    setIsExpanded(prev => ({ ...prev, [groupKey]: !prev[groupKey] }))
+    setIsExpanded((prev: Record<string, boolean>) => ({ ...prev, [groupKey]: !prev[groupKey] }))
   }
   
   const renderSelectedFilesActions = () => {
@@ -1256,7 +1256,7 @@ export function FilesManager() {
               <Card key={groupKey} className="bg-white/5 border-white/10">
                 <CardContent className="p-0">
                   <div className="p-4 border-b border-white/10">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div className="flex items-center space-x-3">
                         <Button
                           size="sm"
@@ -1353,68 +1353,62 @@ export function FilesManager() {
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-green-400 hover:bg-green-900/20"
-                          onClick={() => playGroupFiles(group.files)}
-                          disabled={group.files.filter(f => f.fileType.toLowerCase().includes('mp3')).length === 0}
-                        >
-                          <Play className="h-4 w-4 mr-1" />
-                          재생
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-blue-400 hover:bg-blue-900/20"
-                          onClick={() => handleGroupDownload(group.files, 'zip')}
-                          disabled={processingAction === 'group-download'}
-                        >
-                          {(processingAction === 'group-download' && downloadMode === 'zip') ? (
-                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                          ) : (
-                            <Download className="h-4 w-4 mr-1" />
-                          )}
-                          압축
-                        </Button>
-                                <Button
-                          size="sm"
-                                  variant="ghost"
-                          className="text-indigo-400 hover:bg-indigo-900/20"
-                          onClick={() => handleGroupDownload(group.files, 'sequential')}
-                          disabled={processingAction === 'sequential-download'}
-                                >
-                          {processingAction === 'sequential-download' ? (
-                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                                  ) : (
-                            <Download className="h-4 w-4 mr-1" />
-                                  )}
-                          순차
-                                </Button>
-                                <Button
-                          size="sm"
-                                  variant="ghost"
-                          className="text-red-400 hover:bg-red-900/20"
-                          onClick={() => handleGroupDelete(group.files)}
-                          disabled={processingAction === 'group-delete'}
-                        >
-                          {processingAction === 'group-delete' ? (
-                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4 mr-1" />
-                          )}
-                          삭제
-                              </Button>
-                        <Badge variant="secondary" className="bg-white/10">
-                          {formatFileSize(group.files.reduce((total, file) => total + file.fileSize, 0))}
-                        </Badge>
-                        <Badge variant="secondary" className="bg-gray-600/30 text-gray-300">
-                          {group.totalFiles}개
-                        </Badge>
-                            </div>
-                          </div>
-                        </div>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 mt-2 sm:mt-0">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-green-400 hover:bg-green-900/20"
+                        onClick={() => playGroupFiles(group.files)}
+                        disabled={group.files.filter(f => f.fileType.toLowerCase().includes('mp3')).length === 0}
+                      >
+                        <Play className="h-4 w-4 mr-1" />
+                        재생
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-blue-400 hover:bg-blue-900/20"
+                        onClick={() => handleGroupDownload(group.files, 'zip')}
+                        disabled={processingAction === 'group-download'}
+                      >
+                        {(processingAction === 'group-download' && downloadMode === 'zip') ? (
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : (
+                          <Download className="h-4 w-4 mr-1" />
+                        )}
+                        압축
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-indigo-400 hover:bg-indigo-900/20"
+                        onClick={() => handleGroupDownload(group.files, 'sequential')}
+                        disabled={processingAction === 'sequential-download'}
+                      >
+                        {processingAction === 'sequential-download' ? (
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : (
+                          <Download className="h-4 w-4 mr-1" />
+                        )}
+                        순차
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-red-400 hover:bg-red-900/20"
+                        onClick={() => handleGroupDelete(group.files)}
+                        disabled={processingAction === 'group-delete'}
+                      >
+                        {processingAction === 'group-delete' ? (
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4 mr-1" />
+                        )}
+                        삭제
+                      </Button>
+                    </div>
+                  </div>
                   
                   {currentGroupIsExpanded && (
                     (() => {
@@ -1426,7 +1420,7 @@ export function FilesManager() {
                         console.log(`[${groupKey}] Applying melon chart filter. Rank:`, melonRankFilter[groupKey]);
                         const rankFilterValue = melonRankFilter[groupKey];
                         if (rankFilterValue) {
-                            filesToDisplay = filesToDisplay.filter(f => f.rank && f.rank <= rankFilterValue);
+                            filesToDisplay = filesToDisplay.filter((f: FileData) => f.rank && f.rank <= rankFilterValue);
                         }
                       }
                       
@@ -1450,53 +1444,18 @@ export function FilesManager() {
                       ) : null;
 
                       return (
-                        <div className="space-y-1 p-2">
-                          {group.groupType === 'melon_chart' && (
-                            <div className="flex items-center gap-2 mb-3 px-2">
-                              <span className="text-sm text-gray-400">순위 필터:</span>
-                              <div className="flex gap-1">
-                                {[30, 50, 100].map((rank) => {
-                                  const filesInRank = calculateFilesInRank(groupKey, rank);
-                                  return (
-                      <Button
-                                      key={rank}
-                                      size="sm"
-                                      variant={melonRankFilter[groupKey] === rank ? 'default' : 'outline'}
-                                      className={`px-2 py-1 h-7 text-xs ${
-                                        melonRankFilter[groupKey] === rank
-                                          ? 'bg-yellow-600 hover:bg-yellow-700'
-                                          : 'border-yellow-600/50 text-yellow-400 hover:bg-yellow-600/20'
-                                      }`}
-                                      onClick={() => {
-                                        const newFilter = { ...melonRankFilter };
-                                        if (newFilter[groupKey] === rank) {
-                                          delete newFilter[groupKey];
-                                        } else {
-                                          newFilter[groupKey] = rank;
-                                        }
-                                        setMelonRankFilter(newFilter);
-                                      }}
-                                    >
-                                      TOP {rank} ({filesInRank})
-                      </Button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {summary}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 p-2">
                           {filesToDisplay.map(file => (
-                            <div key={file.id} className="bg-white/5 rounded-lg p-3 hover:bg-white/10 transition-colors">
+                            <div key={file.id} className="bg-white/5 rounded-lg p-3 hover:bg-white/10 transition-colors w-full min-w-0 flex-1 max-w-full overflow-hidden">
                               {renderFileItem(file)}
-                  </div>
+                            </div>
                           ))}
-                </div>
+                        </div>
                       );
                     })()
                   )}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
             )
           })}
         </>
@@ -1587,4 +1546,4 @@ export function FilesManager() {
       </Dialog>
     </div>
   )
-}
+});

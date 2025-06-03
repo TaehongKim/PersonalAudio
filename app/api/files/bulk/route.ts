@@ -45,7 +45,7 @@ async function getCachedZip(fileIds: string[]): Promise<string | null> {
     }
     
     // 원본 파일들이 모두 존재하는지 확인
-    const files = await prisma.file.findMany({
+    const files: CacheFileInfo[] = await prisma.file.findMany({
       where: { id: { in: fileIds } },
       select: { path: true, updatedAt: true }
     });
@@ -58,7 +58,7 @@ async function getCachedZip(fileIds: string[]): Promise<string | null> {
     
     // 캐시 파일 생성 시간 확인
     const zipStat = await fs.stat(zipPath);
-    const latestFileTime = Math.max(...files.map(f => new Date(f.updatedAt).getTime()));
+    const latestFileTime = Math.max(...files.map((f: { updatedAt: Date }) => new Date(f.updatedAt).getTime()));
     
     if (zipStat.mtime.getTime() < latestFileTime) {
       // 원본 파일이 더 최신인 경우 캐시 무효화
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
 async function handleBulkDelete(fileIds: string[]) {
   try {
     // 파일 정보 조회
-    const files = await prisma.file.findMany({
+    const files: DeleteFileInfo[] = await prisma.file.findMany({
       where: {
         id: { in: fileIds }
       },
@@ -174,7 +174,7 @@ async function handleBulkDelete(fileIds: string[]) {
 
     // 실제 파일 시스템에서 파일 삭제
     const deletionResults = await Promise.allSettled(
-      files.map(async (file) => {
+      files.map(async (file: DeleteFileInfo) => {
         const results: string[] = [];
         
         // 메인 파일 삭제
@@ -241,7 +241,7 @@ async function handleBulkDownload(fileIds: string[]) {
       });
       
       // 캐시된 파일 정보로 파일명 생성
-      const files = await prisma.file.findMany({
+      const files: GroupInfo[] = await prisma.file.findMany({
         where: { id: { in: fileIds } },
         select: { groupType: true, groupName: true }
       });
@@ -261,7 +261,7 @@ async function handleBulkDownload(fileIds: string[]) {
     }
     
     // 파일 정보 조회 (그룹 정보 포함)
-    const files = await prisma.file.findMany({
+    const files: FileInfo[] = await prisma.file.findMany({
       where: {
         id: { in: fileIds }
       },
@@ -285,7 +285,7 @@ async function handleBulkDownload(fileIds: string[]) {
     }
 
     // 존재하는 파일만 필터링
-    const existingFiles = [];
+    const existingFiles: FileInfo[] = [];
     for (const file of files) {
       try {
         await fs.access(file.path);
@@ -378,6 +378,20 @@ interface FileInfo {
 interface GroupInfo {
   groupType: string | null;
   groupName: string | null;
+}
+
+// 삭제용 파일 정보 타입
+interface DeleteFileInfo {
+  id: string;
+  path: string;
+  thumbnailPath: string | null;
+  title: string;
+}
+
+// 캐시 확인용 파일 타입
+interface CacheFileInfo {
+  path: string;
+  updatedAt: Date;
 }
 
 // ZIP 파일명 생성 함수 오버로드

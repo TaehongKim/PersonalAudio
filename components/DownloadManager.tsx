@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
 import { X, CheckCircle, AlertCircle, Clock, Loader2, Music, Pause, Play, Square, Trash2, Search, Archive, RotateCcw, RefreshCw } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -11,13 +11,14 @@ import { useSocket } from "@/hooks/useSocket"
 import { useSession } from "@/hooks/useSession"
 import { useDownload } from '@/contexts/DownloadContext'
 import Image from 'next/image'
+import { DownloadStatus, DownloadType, FileGroupType } from '../types/download-status';
 
 interface DownloadTask {
   jobId: string
   title: string
   artist: string
   progress: number
-  status: 'queued' | 'processing' | 'completed' | 'failed' | 'paused'
+  status: DownloadStatus
   error?: string
   coverUrl?: string
   createdAt?: string
@@ -67,7 +68,33 @@ const truncateMiddle = (text: string, maxLength: number = 30): string => {
   return text.substring(0, frontChars) + ellipsis + text.substring(text.length - backChars);
 };
 
-export function DownloadManager() {
+// DownloadQueue 타입을 직접 정의 (prisma schema 기반)
+type DownloadQueue = {
+  id: string;
+  url: string;
+  type: string;
+  status: string;
+  progress: number;
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+  fileId?: string;
+  file?: FileMinimal;
+};
+
+// File 타입 최소 정의 (필요한 필드만)
+type FileMinimal = {
+  id: string;
+  title: string;
+  artist?: string;
+  fileType: string;
+  fileSize: number;
+  duration?: number;
+  thumbnailPath?: string;
+  createdAt: string;
+};
+
+export const DownloadManager = memo(function DownloadManager() {
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -79,7 +106,7 @@ export function DownloadManager() {
   const { isLoggedIn } = useSession()
   const { setDownloadCount } = useDownload()
 
-  // 큐 상태 요약 로드
+  // 메모화된 큐 상태 요약 로드
   const loadQueueSummary = useCallback(async () => {
     if (!isLoggedIn) return
 
@@ -97,7 +124,7 @@ export function DownloadManager() {
     }
   }, [isLoggedIn])
 
-  // 큐 상태 로드
+  // 메모화된 큐 상태 로드
   const loadQueue = useCallback(async () => {
     if (!isLoggedIn) {
       setError('로그인이 필요합니다.')
@@ -123,9 +150,9 @@ export function DownloadManager() {
       const queueData = data.success ? data.data : []
       
       // 큐 데이터를 DownloadTask 형태로 변환
-      const tasks: DownloadTask[] = (queueData || []).map((item: any) => {
+      const tasks: DownloadTask[] = (queueData || []).map((item: DownloadQueue) => {
         // options 파싱 (error 필드에 JSON으로 저장됨)
-        let options: any = {};
+        let options: Record<string, unknown> = {};
         let errorMessage = undefined;
         
         try {
@@ -142,12 +169,12 @@ export function DownloadManager() {
 
         return {
           jobId: item.id,
-          title: options.title || item.url,
-          artist: options.artist || '알 수 없음',
+          title: typeof options.title === 'string' ? options.title : item.url,
+          artist: typeof options.artist === 'string' ? options.artist : '알 수 없음',
           progress: item.progress,
-          status: item.status as any,
-          error: item.status === 'failed' ? errorMessage : undefined,
-          coverUrl: options.coverUrl,
+          status: item.status as DownloadStatus,
+          error: item.status === DownloadStatus.FAILED ? errorMessage : undefined,
+          coverUrl: typeof options.coverUrl === 'string' ? options.coverUrl : undefined,
           createdAt: item.createdAt,
           type: item.url.includes('melon') || options.isMelonChart ? 'melon' : 'youtube',
           data: {
@@ -169,45 +196,46 @@ export function DownloadManager() {
     }
   }, [isLoggedIn, setDownloadCount])
 
+  // 메모화된 Socket 이벤트 핸들러들
+  const handleDownloadStatus = useCallback((data: { jobId: string; status: DownloadStatus; progress: number }) => {
+    setDownloadTasks(prev => prev.map(task => 
+      task.jobId === data.jobId 
+        ? { ...task, status: data.status, progress: data.progress }
+        : task
+    ))
+  }, [])
+
+  const handleDownloadComplete = useCallback((data: { jobId: string; fileId: string; file?: File }) => {
+    setDownloadTasks(prev => prev.map(task => 
+      task.jobId === data.jobId 
+        ? { ...task, status: DownloadStatus.COMPLETED, progress: 100 }
+        : task
+    ))
+    // 완료된 작업은 3초 후 목록에서 제거
+    setTimeout(() => {
+      setDownloadTasks(prev => prev.filter(task => task.jobId !== data.jobId))
+    }, 3000)
+  }, [])
+
+  const handleDownloadError = useCallback((data: { jobId: string; error: string }) => {
+    setDownloadTasks(prev => prev.map(task => 
+      task.jobId === data.jobId 
+        ? { ...task, status: DownloadStatus.FAILED, error: data.error }
+        : task
+    ))
+  }, [])
+
+  const handlePlaylistItemProgress = useCallback((data: { jobId: string; itemTitle: string; progress: number }) => {
+    setDownloadTasks(prev => prev.map(task => 
+      task.jobId === data.jobId 
+        ? { ...task, title: `${task.title} - ${data.itemTitle}`, progress: data.progress }
+        : task
+    ))
+  }, [])
+
   // Socket 이벤트 리스너
   useEffect(() => {
     if (!socket) return
-
-    const handleDownloadStatus = (data: { jobId: string; status: string; progress: number }) => {
-      setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.jobId 
-          ? { ...task, status: data.status as any, progress: data.progress }
-          : task
-      ))
-    }
-
-    const handleDownloadComplete = (data: { jobId: string; fileId: string; file?: any }) => {
-      setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.jobId 
-          ? { ...task, status: 'completed', progress: 100 }
-          : task
-      ))
-      // 완료된 작업은 3초 후 목록에서 제거
-      setTimeout(() => {
-        setDownloadTasks(prev => prev.filter(task => task.jobId !== data.jobId))
-      }, 3000)
-    }
-
-    const handleDownloadError = (data: { jobId: string; error: string }) => {
-      setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.jobId 
-          ? { ...task, status: 'failed', error: data.error }
-          : task
-      ))
-    }
-
-    const handlePlaylistItemProgress = (data: { jobId: string; itemTitle: string; progress: number }) => {
-      setDownloadTasks(prev => prev.map(task => 
-        task.jobId === data.jobId 
-          ? { ...task, title: `${task.title} - ${data.itemTitle}`, progress: data.progress }
-          : task
-      ))
-    }
 
     const statusCleanup = socket.on('download:status', handleDownloadStatus)
     const completeCleanup = socket.on('download:complete', handleDownloadComplete)
@@ -220,7 +248,7 @@ export function DownloadManager() {
       errorCleanup()
       playlistCleanup()
     }
-  }, [socket])
+  }, [socket, handleDownloadStatus, handleDownloadComplete, handleDownloadError, handlePlaylistItemProgress])
 
   // 초기 로드 및 주기적 업데이트
   useEffect(() => {
@@ -234,8 +262,8 @@ export function DownloadManager() {
     return () => clearInterval(interval)
   }, [loadQueue, loadQueueSummary])
 
-  // 다운로드 취소
-  const cancelDownload = async (jobId: string) => {
+  // 메모화된 다운로드 취소
+  const cancelDownload = useCallback(async (jobId: string) => {
     try {
       const response = await fetch(`/api/youtube/cancel/${jobId}`, {
         method: 'POST',
@@ -248,10 +276,10 @@ export function DownloadManager() {
     } catch (err) {
       console.error('Failed to cancel download:', err)
     }
-  }
+  }, [])
 
-  // 다운로드 중지
-  const pauseDownload = async (jobId: string) => {
+  // 메모화된 다운로드 중지
+  const pauseDownload = useCallback(async (jobId: string) => {
     try {
       const response = await fetch(`/api/youtube/pause/${jobId}`, {
         method: 'POST',
@@ -261,17 +289,17 @@ export function DownloadManager() {
       if (response.ok) {
         setDownloadTasks(prev => prev.map(task => 
           task.jobId === jobId 
-            ? { ...task, status: 'paused' }
+            ? { ...task, status: DownloadStatus.PENDING }
             : task
         ))
       }
     } catch (err) {
       console.error('Failed to pause download:', err)
     }
-  }
+  }, [])
 
-  // 다운로드 재개
-  const resumeDownload = async (jobId: string) => {
+  // 메모화된 다운로드 재개
+  const resumeDownload = useCallback(async (jobId: string) => {
     try {
       const response = await fetch(`/api/youtube/resume/${jobId}`, {
         method: 'POST',
@@ -281,14 +309,14 @@ export function DownloadManager() {
       if (response.ok) {
         setDownloadTasks(prev => prev.map(task => 
           task.jobId === jobId 
-            ? { ...task, status: 'queued' }
+            ? { ...task, status: DownloadStatus.PENDING }
             : task
         ))
       }
     } catch (err) {
       console.error('Failed to resume download:', err)
     }
-  }
+  }, [])
 
   // 완료된 작업 제거
   const removeCompletedTask = (jobId: string) => {
@@ -296,34 +324,32 @@ export function DownloadManager() {
   }
 
   // 상태별 아이콘
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = (status: DownloadStatus) => {
     switch (status) {
-      case 'completed':
+      case DownloadStatus.COMPLETED:
         return <CheckCircle className="w-5 h-5 text-green-500" />
-      case 'failed':
+      case DownloadStatus.FAILED:
         return <AlertCircle className="w-5 h-5 text-red-500" />
-      case 'processing':
+      case DownloadStatus.PROCESSING:
         return <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-      case 'paused':
-        return <Pause className="w-5 h-5 text-orange-500" />
-      case 'queued':
+      case DownloadStatus.PENDING:
+        return <Clock className="w-5 h-5 text-yellow-500" />
       default:
         return <Clock className="w-5 h-5 text-yellow-500" />
     }
   }
 
   // 상태별 라벨
-  const getStatusLabel = (status: string) => {
+  const getStatusLabel = (status: DownloadStatus) => {
     switch (status) {
-      case 'completed':
+      case DownloadStatus.COMPLETED:
         return '완료'
-      case 'failed':
+      case DownloadStatus.FAILED:
         return '실패'
-      case 'processing':
+      case DownloadStatus.PROCESSING:
         return '처리 중'
-      case 'paused':
-        return '중지됨'
-      case 'queued':
+      case DownloadStatus.PENDING:
+        return '대기 중'
       default:
         return '대기 중'
     }
@@ -351,7 +377,7 @@ export function DownloadManager() {
   const deleteSelectedTasks = async () => {
     for (const jobId of selectedTasks) {
       const task = downloadTasks.find(t => t.jobId === jobId)
-      if (task && ['processing', 'queued'].includes(task.status)) {
+      if (task && [DownloadStatus.PROCESSING, DownloadStatus.PENDING].includes(task.status)) {
         await pauseDownload(jobId)
       }
       await cancelDownload(jobId)
@@ -428,7 +454,7 @@ export function DownloadManager() {
   // 선택된 실패 작업들 재시도
   const retrySelectedTasks = async () => {
     const failedTasks = downloadTasks.filter(task => 
-      selectedTasks.includes(task.jobId) && task.status === 'failed'
+      selectedTasks.includes(task.jobId) && task.status === DownloadStatus.FAILED
     );
 
     for (const task of failedTasks) {
@@ -440,7 +466,7 @@ export function DownloadManager() {
 
   // 모든 실패 작업 재시도
   const retryAllFailedTasks = async () => {
-    const failedTasks = downloadTasks.filter(task => task.status === 'failed');
+    const failedTasks = downloadTasks.filter(task => task.status === DownloadStatus.FAILED);
     
     for (const task of failedTasks) {
       await retryDownload(task);
@@ -479,45 +505,48 @@ export function DownloadManager() {
 
   // 모든 실패 작업 삭제
   const clearAllFailedTasks = async () => {
-    const failedJobIds = downloadTasks.filter(task => task.status === 'failed').map(task => task.jobId);
+    const failedJobIds = downloadTasks.filter(task => task.status === DownloadStatus.FAILED).map(task => task.jobId);
     await deleteFailedTasks(failedJobIds);
   };
 
   // 선택된 실패 작업들 삭제
   const deleteSelectedFailedTasks = async () => {
     const selectedFailedJobIds = downloadTasks
-      .filter(task => selectedTasks.includes(task.jobId) && task.status === 'failed')
+      .filter(task => selectedTasks.includes(task.jobId) && task.status === DownloadStatus.FAILED)
       .map(task => task.jobId);
     
     await deleteFailedTasks(selectedFailedJobIds);
     setSelectedTasks([]);
   };
 
-  // 필터링된 작업 목록
-  const filteredTasks = downloadTasks.filter(task => {
-    const matchesStatus = filterStatus === 'all' || task.status === filterStatus
-    const matchesSearch = searchQuery === '' || 
-      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      task.artist.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesStatus && matchesSearch
-  })
+  // 메모화된 필터링된 작업 목록
+  const filteredTasks = useMemo(() => {
+    return downloadTasks.filter(task => {
+      const matchesStatus = filterStatus === 'all' || task.status === filterStatus
+      const matchesSearch = searchQuery === '' || 
+        task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        task.artist.toLowerCase().includes(searchQuery.toLowerCase())
+      return matchesStatus && matchesSearch
+    })
+  }, [downloadTasks, filterStatus, searchQuery])
 
-  // 상태별 통계
-  const statusStats = {
-    all: downloadTasks.length,
-    queued: downloadTasks.filter(t => t.status === 'queued').length,
-    processing: downloadTasks.filter(t => t.status === 'processing').length,
-    paused: downloadTasks.filter(t => t.status === 'paused').length,
-    completed: downloadTasks.filter(t => t.status === 'completed').length,
-    failed: downloadTasks.filter(t => t.status === 'failed').length,
-  }
+  // 메모화된 상태별 통계
+  const statusStats = useMemo(() => {
+    return {
+      all: downloadTasks.length,
+      pending: downloadTasks.filter(t => t.status === DownloadStatus.PENDING).length,
+      processing: downloadTasks.filter(t => t.status === DownloadStatus.PROCESSING).length,
+      completed: downloadTasks.filter(t => t.status === DownloadStatus.COMPLETED).length,
+      failed: downloadTasks.filter(t => t.status === DownloadStatus.FAILED).length,
+    }
+  }, [downloadTasks])
 
   if (!isLoggedIn) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-48 sm:h-64">
         <div className="text-center">
-          <Music className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-          <p className="text-gray-600">로그인이 필요합니다.</p>
+          <Music className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-4 text-gray-400" />
+          <p className="text-gray-600 text-sm sm:text-base">로그인이 필요합니다.</p>
         </div>
       </div>
     )
@@ -525,10 +554,10 @@ export function DownloadManager() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-48 sm:h-64">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-blue-500" />
-          <p className="text-gray-600">다운로드 상태를 불러오는 중...</p>
+          <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 mx-auto mb-4 animate-spin text-blue-500" />
+          <p className="text-gray-600 text-sm sm:text-base">다운로드 상태를 불러오는 중...</p>
         </div>
       </div>
     )
@@ -536,11 +565,11 @@ export function DownloadManager() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-48 sm:h-64">
         <div className="text-center">
-          <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
-          <p className="text-red-600 mb-4">{error}</p>
-          <Button onClick={loadQueue} variant="outline">
+          <AlertCircle className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-4 text-red-500" />
+          <p className="text-red-600 mb-4 text-sm sm:text-base">{error}</p>
+          <Button onClick={loadQueue} variant="outline" size="sm" className="text-sm">
             다시 시도
           </Button>
         </div>
@@ -549,13 +578,13 @@ export function DownloadManager() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       {/* 헤더 섹션 */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold">다운로드 관리</h1>
-            <p className="text-gray-600 dark:text-gray-400">
+            <h1 className="text-2xl sm:text-3xl font-bold">다운로드 관리</h1>
+            <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">
               {downloadTasks.length}개의 작업 {selectedTasks.length > 0 && `(${selectedTasks.length}개 선택)`}
             </p>
           </div>
@@ -569,44 +598,44 @@ export function DownloadManager() {
 
         {/* 큐 상태 요약 */}
         {queueSummary && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 sm:p-4 rounded-lg border border-blue-200 dark:border-blue-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-blue-600 dark:text-blue-400">대기 중</p>
-                  <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{queueSummary.pending}</p>
+                  <p className="text-xs sm:text-sm text-blue-600 dark:text-blue-400">대기 중</p>
+                  <p className="text-xl sm:text-2xl font-bold text-blue-700 dark:text-blue-300">{queueSummary.pending}</p>
                 </div>
-                <Clock className="w-8 h-8 text-blue-500" />
+                <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-blue-500" />
               </div>
             </div>
             
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg border border-yellow-200 dark:border-yellow-800">
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 sm:p-4 rounded-lg border border-yellow-200 dark:border-yellow-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-yellow-600 dark:text-yellow-400">처리 중</p>
-                  <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-300">{queueSummary.processing}</p>
+                  <p className="text-xs sm:text-sm text-yellow-600 dark:text-yellow-400">처리 중</p>
+                  <p className="text-xl sm:text-2xl font-bold text-yellow-700 dark:text-yellow-300">{queueSummary.processing}</p>
                 </div>
-                <Loader2 className="w-8 h-8 text-yellow-500 animate-spin" />
+                <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 text-yellow-500 animate-spin" />
               </div>
             </div>
             
-            <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+            <div className="bg-green-50 dark:bg-green-900/20 p-3 sm:p-4 rounded-lg border border-green-200 dark:border-green-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-green-600 dark:text-green-400">완료</p>
-                  <p className="text-2xl font-bold text-green-700 dark:text-green-300">{queueSummary.completed}</p>
+                  <p className="text-xs sm:text-sm text-green-600 dark:text-green-400">완료</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-700 dark:text-green-300">{queueSummary.completed}</p>
                 </div>
-                <CheckCircle className="w-8 h-8 text-green-500" />
+                <CheckCircle className="w-6 h-6 sm:w-8 sm:h-8 text-green-500" />
               </div>
             </div>
             
-            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-200 dark:border-red-800">
+            <div className="bg-red-50 dark:bg-red-900/20 p-3 sm:p-4 rounded-lg border border-red-200 dark:border-red-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-red-600 dark:text-red-400">실패</p>
-                  <p className="text-2xl font-bold text-red-700 dark:text-red-300">{queueSummary.failed}</p>
+                  <p className="text-xs sm:text-sm text-red-600 dark:text-red-400">실패</p>
+                  <p className="text-xl sm:text-2xl font-bold text-red-700 dark:text-red-300">{queueSummary.failed}</p>
                 </div>
-                <AlertCircle className="w-8 h-8 text-red-500" />
+                <AlertCircle className="w-6 h-6 sm:w-8 sm:h-8 text-red-500" />
               </div>
             </div>
           </div>
@@ -619,13 +648,13 @@ export function DownloadManager() {
               <Archive className="w-5 h-5 mr-2" />
               최근 완료된 다운로드 그룹
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {queueSummary.recentGroups.slice(0, 6).map((group, index) => (
                 <div key={index} className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate" title={group.groupName}>
-                        {truncateMiddle(group.groupName, 25)}
+                        {truncateMiddle(group.groupName, window.innerWidth < 640 ? 20 : 25)}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {group.groupType === 'melon_chart' ? '🍈 멜론차트' : 
@@ -633,7 +662,7 @@ export function DownloadManager() {
                          '🎵 단일 파일'}
                       </p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right flex-shrink-0">
                       <p className="text-sm font-bold text-green-600 dark:text-green-400">
                         {group.completedCount}곡
                       </p>
@@ -649,7 +678,7 @@ export function DownloadManager() {
         )}
 
         {/* 검색 및 필터 */}
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col gap-4">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -657,20 +686,19 @@ export function DownloadManager() {
               placeholder="제목 또는 아티스트로 검색..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
             />
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex justify-start">
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm sm:text-base min-w-0 max-w-full"
             >
               <option value="all">모든 상태 ({statusStats.all})</option>
-              <option value="queued">대기 중 ({statusStats.queued})</option>
+              <option value="pending">대기 중 ({statusStats.pending})</option>
               <option value="processing">처리 중 ({statusStats.processing})</option>
-              <option value="paused">중지됨 ({statusStats.paused})</option>
               <option value="completed">완료 ({statusStats.completed})</option>
               <option value="failed">실패 ({statusStats.failed})</option>
             </select>
@@ -679,41 +707,47 @@ export function DownloadManager() {
 
         {/* 일괄 작업 버튼 */}
         {downloadTasks.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 text-sm">
             <Button 
               onClick={toggleSelectAll} 
               variant="outline" 
               size="sm"
-              className={selectedTasks.length === downloadTasks.length ? "bg-blue-100 dark:bg-blue-900" : ""}
+              className={`text-xs sm:text-sm ${selectedTasks.length === downloadTasks.length ? "bg-blue-100 dark:bg-blue-900" : ""}`}
             >
-              {selectedTasks.length === downloadTasks.length ? "전체 선택 해제" : "전체 선택"}
+              <span className="hidden sm:inline">{selectedTasks.length === downloadTasks.length ? "전체 선택 해제" : "전체 선택"}</span>
+              <span className="sm:hidden">{selectedTasks.length === downloadTasks.length ? "전체 해제" : "전체"}</span>
             </Button>
             
             {selectedTasks.length > 0 && (
               <>
-                <Button onClick={pauseSelectedTasks} variant="outline" size="sm">
-                  <Pause className="w-4 h-4 mr-1" />
-                  선택 중지
+                <Button onClick={pauseSelectedTasks} variant="outline" size="sm" className="text-xs sm:text-sm">
+                  <Pause className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5 sm:mr-1" />
+                  <span className="hidden sm:inline">선택 중지</span>
+                  <span className="sm:hidden">중지</span>
                 </Button>
-                <Button onClick={resumeSelectedTasks} variant="outline" size="sm">
-                  <Play className="w-4 h-4 mr-1" />
-                  선택 재개
+                <Button onClick={resumeSelectedTasks} variant="outline" size="sm" className="text-xs sm:text-sm">
+                  <Play className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5 sm:mr-1" />
+                  <span className="hidden sm:inline">선택 재개</span>
+                  <span className="sm:hidden">재개</span>
                 </Button>
-                <Button onClick={deleteSelectedTasks} variant="destructive" size="sm">
-                  <Trash2 className="w-4 h-4 mr-1" />
-                  선택 삭제
+                <Button onClick={deleteSelectedTasks} variant="destructive" size="sm" className="text-xs sm:text-sm">
+                  <Trash2 className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5 sm:mr-1" />
+                  <span className="hidden sm:inline">선택 삭제</span>
+                  <span className="sm:hidden">삭제</span>
                 </Button>
                 
                 {/* 선택된 작업 중 실패한 것들에 대한 특별 액션 */}
-                {downloadTasks.some(task => selectedTasks.includes(task.jobId) && task.status === 'failed') && (
+                {downloadTasks.some(task => selectedTasks.includes(task.jobId) && task.status === DownloadStatus.FAILED) && (
                   <>
-                    <Button onClick={retrySelectedTasks} variant="outline" size="sm" className="text-blue-600 hover:text-blue-800">
-                      <RefreshCw className="w-4 h-4 mr-1" />
-                      선택 재시도
+                    <Button onClick={retrySelectedTasks} variant="outline" size="sm" className="text-blue-600 hover:text-blue-800 text-xs sm:text-sm">
+                      <RefreshCw className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5 sm:mr-1" />
+                      <span className="hidden sm:inline">선택 재시도</span>
+                      <span className="sm:hidden">재시도</span>
                     </Button>
-                    <Button onClick={deleteSelectedFailedTasks} variant="destructive" size="sm">
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      실패 작업 삭제
+                    <Button onClick={deleteSelectedFailedTasks} variant="destructive" size="sm" className="text-xs sm:text-sm">
+                      <Trash2 className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5 sm:mr-1" />
+                      <span className="hidden sm:inline">실패 작업 삭제</span>
+                      <span className="sm:hidden">실패 삭제</span>
                     </Button>
                   </>
                 )}
@@ -721,16 +755,18 @@ export function DownloadManager() {
             )}
 
             {/* 실패 필터 상태일 때 특별 액션들 */}
-            {filterStatus === 'failed' && statusStats.failed > 0 && (
+            {filterStatus === DownloadStatus.FAILED && statusStats.failed > 0 && (
               <>
                 <div className="w-px h-6 bg-gray-300 dark:bg-gray-600" />
-                <Button onClick={retryAllFailedTasks} variant="outline" size="sm" className="text-blue-600 hover:text-blue-800">
-                  <RefreshCw className="w-4 h-4 mr-1" />
-                  모든 실패 작업 재시도
+                <Button onClick={retryAllFailedTasks} variant="outline" size="sm" className="text-blue-600 hover:text-blue-800 text-xs sm:text-sm">
+                  <RefreshCw className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5 sm:mr-1" />
+                  <span className="hidden sm:inline">모든 실패 작업 재시도</span>
+                  <span className="sm:hidden">전체 재시도</span>
                 </Button>
-                <Button onClick={clearAllFailedTasks} variant="destructive" size="sm">
-                  <Trash2 className="w-4 h-4 mr-1" />
-                  모든 실패 작업 삭제
+                <Button onClick={clearAllFailedTasks} variant="destructive" size="sm" className="text-xs sm:text-sm">
+                  <Trash2 className="w-3 h-3 sm:w-4 sm:h-4 mr-0.5 sm:mr-1" />
+                  <span className="hidden sm:inline">모든 실패 작업 삭제</span>
+                  <span className="sm:hidden">전체 삭제</span>
                 </Button>
               </>
             )}
@@ -770,7 +806,7 @@ export function DownloadManager() {
       ) : (
         <div className="space-y-3">
           {/* 실패 필터 상태일 때 스크롤 가능한 컨테이너 */}
-          {filterStatus === 'failed' ? (
+          {filterStatus === DownloadStatus.FAILED ? (
             <div className="max-h-96 overflow-y-auto space-y-3 pr-2 border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -790,10 +826,10 @@ export function DownloadManager() {
                     }`}
                   onClick={() => toggleSelectTask(task.jobId)}
                 >
-                  <div className="p-4">
-                    <div className="flex items-start justify-between">
+                  <div className="p-3 sm:p-4">
+                    <div className="flex items-start justify-between gap-2">
                       {/* 왼쪽: 체크박스, 제목, 아티스트 */}
-                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                      <div className="flex items-start gap-2 sm:gap-3 flex-1 min-w-0">
                         <input
                           type="checkbox"
                           checked={selectedTasks.includes(task.jobId)}
@@ -801,12 +837,12 @@ export function DownloadManager() {
                             e.stopPropagation()
                             toggleSelectTask(task.jobId)
                           }}
-                          className="w-4 h-4 mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          className="w-4 h-4 mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
                         />
                         
                         {/* 썸네일 (있는 경우) */}
                         {task.coverUrl && (
-                          <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex-shrink-0">
+                          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex-shrink-0">
                             <Image 
                               src={task.coverUrl} 
                               alt="Cover" 
@@ -823,29 +859,29 @@ export function DownloadManager() {
                         
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate" title={task.title}>
-                              {truncateMiddle(task.title, 35)}
+                            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate text-sm sm:text-base" title={task.title}>
+                              {truncateMiddle(task.title, window.innerWidth < 640 ? 20 : 35)}
                             </h3>
                             {task.type && (
                               <Badge 
                                 variant={task.type === 'youtube' ? 'destructive' : 'default'}
-                                className="text-xs"
+                                className="text-xs flex-shrink-0"
                               >
-                                {task.type === 'youtube' ? 'YouTube' : task.type === 'melon' ? 'Melon' : 'Playlist'}
+                                {task.type === 'youtube' ? 'YT' : task.type === 'melon' ? 'ML' : 'PL'}
                               </Badge>
                             )}
                           </div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 truncate mb-2" title={task.artist}>
-                            {truncateMiddle(task.artist, 30)}
+                          <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 truncate mb-2" title={task.artist}>
+                            {truncateMiddle(task.artist, window.innerWidth < 640 ? 15 : 30)}
                           </p>
                         </div>
                       </div>
 
                       {/* 오른쪽: 상태와 컨트롤 버튼 */}
-                      <div className="flex items-center gap-3 ml-4">
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 sm:gap-3 ml-2 sm:ml-4 flex-shrink-0">
+                        <div className="flex items-center gap-1 sm:gap-2">
                           {getStatusIcon(task.status)}
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:inline">
                             {getStatusLabel(task.status)}
                           </span>
                         </div>
@@ -858,10 +894,10 @@ export function DownloadManager() {
                             }}
                             variant="ghost"
                             size="sm"
-                            className="w-8 h-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900"
+                            className="w-7 h-7 sm:w-8 sm:h-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900"
                             title="재시도"
                           >
-                            <RefreshCw className="w-4 h-4" />
+                            <RefreshCw className="w-3 h-3 sm:w-4 sm:h-4" />
                           </Button>
                           <Button
                             onClick={(e) => {
@@ -870,28 +906,28 @@ export function DownloadManager() {
                             }}
                             variant="ghost"
                             size="sm"
-                            className="w-8 h-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900"
+                            className="w-7 h-7 sm:w-8 sm:h-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900"
                             title="삭제"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
                           </Button>
                         </div>
                       </div>
                     </div>
                     
                     {/* 하단 상태 메시지 */}
-                    {task.status === 'failed' && task.error && (
+                    {task.status === DownloadStatus.FAILED && task.error && (
                       <div className="mt-3">
-                        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                          <div className="flex items-start justify-between gap-3">
+                        <div className="p-2 sm:p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
                             <div className="flex items-start gap-2 flex-1">
                               <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                              <div className="flex-1">
-                                <p className="text-sm font-medium text-red-800 dark:text-red-200 mb-1">다운로드 실패</p>
-                                <p className="text-sm text-red-700 dark:text-red-300">{task.error}</p>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs sm:text-sm font-medium text-red-800 dark:text-red-200 mb-1">다운로드 실패</p>
+                                <p className="text-xs sm:text-sm text-red-700 dark:text-red-300 break-words">{task.error}</p>
                               </div>
                             </div>
-                            <div className="flex gap-1">
+                            <div className="flex gap-1 flex-shrink-0">
                               <Button
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -899,7 +935,7 @@ export function DownloadManager() {
                                 }}
                                 size="sm"
                                 variant="outline"
-                                className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                                className="text-blue-600 border-blue-300 hover:bg-blue-50 text-xs"
                               >
                                 <RefreshCw className="w-3 h-3 mr-1" />
                                 재시도
@@ -911,7 +947,7 @@ export function DownloadManager() {
                                 }}
                                 size="sm"
                                 variant="outline"
-                                className="text-red-600 border-red-300 hover:bg-red-50"
+                                className="text-red-600 border-red-300 hover:bg-red-50 text-xs"
                               >
                                 <Trash2 className="w-3 h-3 mr-1" />
                                 삭제
@@ -987,7 +1023,7 @@ export function DownloadManager() {
                         </p>
                         
                         {/* 진행률 바 (진행 중/대기 중/중지된 작업만) */}
-                        {(task.status === 'processing' || task.status === 'queued' || task.status === 'paused') && (
+                        {[DownloadStatus.PROCESSING, DownloadStatus.PENDING].includes(task.status) && (
                           <div className="space-y-1">
                             <div className="flex justify-between text-xs text-gray-500">
                               <span>진행률</span>
@@ -1009,7 +1045,7 @@ export function DownloadManager() {
                       </div>
                       
                       <div className="flex items-center gap-1">
-                        {task.status === 'processing' && (
+                        {task.status === DownloadStatus.PROCESSING && (
                           <Button
                             onClick={(e) => {
                               e.stopPropagation()
@@ -1023,7 +1059,7 @@ export function DownloadManager() {
                             <Pause className="w-4 h-4" />
                           </Button>
                         )}
-                        {task.status === 'paused' && (
+                        {task.status === DownloadStatus.PENDING && (
                           <Button
                             onClick={(e) => {
                               e.stopPropagation()
@@ -1037,7 +1073,7 @@ export function DownloadManager() {
                             <Play className="w-4 h-4" />
                           </Button>
                         )}
-                        {(task.status === 'processing' || task.status === 'queued' || task.status === 'paused') && (
+                        {[DownloadStatus.PROCESSING, DownloadStatus.PENDING].includes(task.status) && (
                           <Button
                             onClick={(e) => {
                               e.stopPropagation()
@@ -1051,7 +1087,7 @@ export function DownloadManager() {
                             <Square className="w-4 h-4" />
                           </Button>
                         )}
-                        {task.status === 'failed' && (
+                        {task.status === DownloadStatus.FAILED && (
                           <>
                             <Button
                               onClick={(e) => {
@@ -1079,7 +1115,7 @@ export function DownloadManager() {
                             </Button>
                           </>
                         )}
-                        {task.status === 'completed' && (
+                        {task.status === DownloadStatus.COMPLETED && (
                           <Button
                             onClick={(e) => {
                               e.stopPropagation()
@@ -1098,7 +1134,7 @@ export function DownloadManager() {
                   </div>
                   
                   {/* 하단 상태 메시지 */}
-                  {task.status === 'failed' && task.error && (
+                  {task.status === DownloadStatus.FAILED && task.error && (
                     <div className="px-4 pb-4">
                       <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                         <div className="flex items-start justify-between gap-3">
@@ -1140,7 +1176,7 @@ export function DownloadManager() {
                     </div>
                   )}
                   
-                  {task.status === 'completed' && (
+                  {task.status === DownloadStatus.COMPLETED && (
                     <div className="px-4 pb-4">
                       <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                         <div className="flex items-center gap-2">
@@ -1151,12 +1187,12 @@ export function DownloadManager() {
                     </div>
                   )}
                   
-                  {task.status === 'paused' && (
+                  {task.status === DownloadStatus.PENDING && (
                     <div className="px-4 pb-4">
-                      <div className="p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                      <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                         <div className="flex items-center gap-2">
-                          <Pause className="w-4 h-4 text-orange-500" />
-                          <p className="text-sm text-orange-700 dark:text-orange-300">다운로드가 중지되었습니다.</p>
+                          <Clock className="w-4 h-4 text-yellow-500" />
+                          <p className="text-sm text-yellow-700 dark:text-yellow-300">다운로드가 대기 중입니다.</p>
                         </div>
                       </div>
                     </div>
@@ -1169,7 +1205,7 @@ export function DownloadManager() {
       )}
 
       {/* 실패 상태 전용 안내 메시지 */}
-      {filterStatus === 'failed' && statusStats.failed > 0 && (
+      {filterStatus === DownloadStatus.FAILED && statusStats.failed > 0 && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
@@ -1197,4 +1233,4 @@ export function DownloadManager() {
       )}
     </div>
   )
-}
+});

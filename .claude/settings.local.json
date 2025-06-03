@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm dev:*)",
+      "Bash(pnpm prisma generate:*)",
+      "Bash(grep:*)",
+      "Bash(pnpm tsc:*)",
+      "Bash(pnpm remove:*)",
+      "Bash(find:*)",
+      "Bash(rm:*)",
+      "Bash(npx tsc:*)",
+      "Bash(mkdir:*)",
+      "Bash(timeout:*)",
+      "Bash(NODE_ENV=production timeout 20s npx next build --no-lint 2 >& 1)",
+      "Bash(cp:*)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "Bash(npx eslint:*)",
+      "Bash(mv:*)"
+    ],
+    "deny": []
+  }
+}

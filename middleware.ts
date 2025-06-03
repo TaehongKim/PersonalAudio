@@ -21,7 +21,7 @@ export async function middleware(request: NextRequest) {
   // JWT 토큰 확인
   const token = await getToken({
     req: request,
-    secret: process.env.NEXTAUTH_SECRET,
+    secret: process.env.NEXT_PUBLIC_AUTH_MIDDLEWARE_SECRET,
   });
   
   // 토큰이 없으면 로그인 페이지로 리디렉션

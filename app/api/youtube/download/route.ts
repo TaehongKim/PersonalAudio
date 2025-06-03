@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { addToQueue } from '@/lib/queue-manager';
-import { DownloadType, isPlaylistUrl } from '@/lib/downloader';
+import { DownloadType } from '../../../../types/download-status';
+import { isPlaylistUrl } from '@/lib/downloader';
 import { ensureServerInitialized } from '@/lib/server-init';
 
 // 서버 초기화 확인

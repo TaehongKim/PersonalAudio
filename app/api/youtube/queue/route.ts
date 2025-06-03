@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getAllPendingDownloads, getAllProcessingDownloads, getRecentCompletedDownloads } from '@/lib/queue-manager';
+import { getAllPendingDownloads, getAllProcessingDownloads } from '@/lib/queue-manager';
 import { prisma } from '@/lib/prisma';
-import { DownloadStatus } from '@/lib/downloader';
+import { DownloadStatus } from '../../../../types/download-status';
 
 export async function GET() {
   try {

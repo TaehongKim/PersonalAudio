@@ -68,13 +68,13 @@ async function searchYoutube(query: string, maxResults = 10): Promise<SearchResu
                 description: data.description || ''
               })
             }
-          } catch (parseError) {
-            console.warn('JSON 파싱 오류:', parseError)
+          } catch {
+            console.warn('JSON 파싱 중 오류 발생')
           }
         }
 
         resolve(results)
-      } catch (error) {
+      } catch {
         reject(new Error('검색 결과 파싱 실패'))
       }
     })

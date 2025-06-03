@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDownloadStatus } from '@/lib/queue-manager';
-import { DownloadType, DownloadStatus } from '@/lib/downloader';
+import { DownloadType, DownloadStatus } from '../../../../../types/download-status';
 import { ensureServerInitialized } from '@/lib/server-init';
 import { prisma } from '@/lib/prisma';
 

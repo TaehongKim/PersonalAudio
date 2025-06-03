@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useCallback, useMemo, memo } from 'react'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { 
   Play, 
@@ -37,7 +37,7 @@ const formatTime = (seconds: number): string => {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-export function Player() {
+export const Player = memo(function Player() {
   const { 
     state, 
     play, 
@@ -74,29 +74,47 @@ export function Player() {
     }
   }, [state.currentFile, state.isPlaying])
 
-  const handleTimeUpdate = () => {
+  // 메모화된 시간 업데이트 핸들러
+  const handleTimeUpdate = useCallback(() => {
     if (audioRef.current) {
       seek(audioRef.current.currentTime)
     }
-  }
+  }, [seek])
 
-  const handleVolumeChange = (value: number[]) => {
+  // 메모화된 볼륨 변경 핸들러
+  const handleVolumeChange = useCallback((value: number[]) => {
     const volume = value[0]
     setVolume(volume)
-  }
+  }, [setVolume])
 
-  const handleProgressChange = (value: number[]) => {
+  // 메모화된 진행률 변경 핸들러
+  const handleProgressChange = useCallback((value: number[]) => {
     if (audioRef.current) {
       const time = value[0]
       seek(time)
     }
-  }
+  }, [seek])
 
+  // 재생/일시정지 핸들러 (useCallback으로 미리 선언)
+  const handlePlayPause = useCallback(() => {
+    if (state.isPlaying) {
+      pause();
+    } else {
+      play();
+    }
+  }, [state.isPlaying, pause, play]);
+
+  // 볼륨 토글 핸들러 (useCallback으로 미리 선언)
+  const handleVolumeToggle = useCallback(() => {
+    handleVolumeChange([state.volume === 0 ? 1 : 0]);
+  }, [handleVolumeChange, state.volume]);
+
+  // 메모화된 계산 값들
+  const hasPlaylist = useMemo(() => state.playlist.length > 1, [state.playlist.length])
+  const currentTrackNumber = useMemo(() => state.currentIndex + 1, [state.currentIndex])
+  const totalTracks = useMemo(() => state.playlist.length, [state.playlist.length])
+  
   if (!state.currentFile) return null
-
-  const hasPlaylist = state.playlist.length > 1
-  const currentTrackNumber = state.currentIndex + 1
-  const totalTracks = state.playlist.length
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border p-2 md:p-4 z-50">
@@ -178,7 +196,7 @@ export function Player() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => state.isPlaying ? pause() : play()}
+              onClick={handlePlayPause}
               className="h-8 w-8 md:h-10 md:w-10 bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {state.isPlaying ? <Pause className="h-4 w-4 md:h-5 md:w-5" /> : <Play className="h-4 w-4 md:h-5 md:w-5" />}
@@ -245,7 +263,7 @@ export function Player() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => handleVolumeChange([state.volume === 0 ? 1 : 0])}
+            onClick={handleVolumeToggle}
             className="h-8 w-8"
           >
             {state.volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
@@ -263,4 +281,4 @@ export function Player() {
       </div>
     </div>
   )
-} 
+}); 

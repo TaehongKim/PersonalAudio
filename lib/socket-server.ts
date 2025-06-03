@@ -1,7 +1,6 @@
 import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
-import { DownloadStatus } from './downloader';
-import type { File } from '@prisma/client';
+import { DownloadStatus } from '../types/download-status';
 
 // 타입 정의
 interface DownloadStatusData {
@@ -13,10 +12,29 @@ interface DownloadStatusData {
   fileId?: string;
 }
 
+// Prisma File 모델 구조 기반 타입 정의
+export type FileRecord = {
+  id: string;
+  title: string;
+  artist?: string | null;
+  fileType: string;
+  fileSize: number;
+  duration?: number | null;
+  path: string;
+  thumbnailPath?: string | null;
+  sourceUrl?: string | null;
+  groupType?: string | null;
+  groupName?: string | null;
+  rank?: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+  downloads: number;
+};
+
 interface DownloadCompleteData {
   id: string;
   fileId: string;
-  fileData: File;
+  fileData: FileRecord;
   timestamp: string;
 }
 
@@ -40,7 +58,7 @@ interface PlaylistItemCompleteData {
   itemIndex: number;
   totalItems: number;
   fileId: string;
-  fileData: File;
+  fileData: FileRecord;
   timestamp: string;
 }
 
@@ -162,7 +180,7 @@ export function emitDownloadStatusUpdate(
 /**
  * 다운로드 완료 이벤트 발송
  */
-export function emitDownloadComplete(downloadId: string, fileId: string, fileData: File) {
+export function emitDownloadComplete(downloadId: string, fileId: string, fileData: FileRecord) {
   if (!io) {
     console.log('[Socket] Socket.io 서버가 초기화되지 않았습니다.');
     return;
@@ -237,7 +255,7 @@ export function emitPlaylistItemComplete(
   itemIndex: number, 
   totalItems: number, 
   fileId: string, 
-  fileData: File
+  fileData: FileRecord
 ) {
   if (!io) {
     console.log('[Socket] Socket.io 서버가 초기화되지 않았습니다.');
