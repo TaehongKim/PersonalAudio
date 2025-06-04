@@ -34,7 +34,7 @@ export async function DELETE(request: Request) {
     }
 
     // 진행 중인 작업 확인
-    const activeItems = queueItems.filter(item => 
+    const activeItems = queueItems.filter((item: any) => 
       !['failed', 'completed'].includes(item.status)
     );
 
@@ -42,7 +42,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({
         success: false,
         message: `${activeItems.length}개의 진행 중인 작업이 있습니다. 먼저 취소해주세요.`,
-        activeIds: activeItems.map(item => item.id)
+        activeIds: activeItems.map((item: any) => item.id)
       }, { status: 400 });
     }
 

@@ -200,6 +200,11 @@ const getGroupTypeDisplayName = (groupType: string): string => {
   }
 }
 
+// Skeleton UI 컴포넌트
+function FilesSkeleton() {
+  return <div className="p-8 animate-pulse text-center text-muted-foreground">파일 목록 로딩 중...</div>;
+}
+
 export const FilesManager = memo(function FilesManager() {
   const [files, setFiles] = useState<FileData[]>([])
   const [fileGroups, setFileGroups] = useState<FileGroup[]>([])
@@ -244,6 +249,21 @@ export const FilesManager = memo(function FilesManager() {
   } = usePlayer()
   const socket = useSocket()
   const isMobile = useMediaQuery("(max-width: 768px)")
+
+  // 데이터 fetch useEffect 병렬화
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetch('/api/files').then(res => res.json()),
+      fetch('/api/files/groups').then(res => res.json()),
+      fetch('/api/files/stats').then(res => res.json()),
+    ]).then(([files, groups, stats]) => {
+      setFiles(files.files || []);
+      setFileGroups(groups.groups || []);
+      setStats(stats || null);
+    }).catch(() => setError('파일 정보를 불러오는 중 오류가 발생했습니다.'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const loadFiles = useCallback(async () => {
       setLoading(true)
@@ -1178,6 +1198,12 @@ export const FilesManager = memo(function FilesManager() {
     )
   }
 
+  // 파일/그룹 리스트 useMemo
+  const groupedFiles = useMemo(() => groupFiles(files), [files]);
+
+  // 렌더링 부분에서 로딩 중이면 Skeleton UI 표시
+  if (loading) return <FilesSkeleton />;
+
   return (
     <div className="space-y-6 p-4 md:p-6">
         <Breadcrumb className="mb-4">
@@ -1547,3 +1573,5 @@ export const FilesManager = memo(function FilesManager() {
     </div>
   )
 });
+
+export default FilesManager;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Download, ExternalLink, Clock, Eye, User } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import Image from 'next/image';
+import React from 'react';
 
 interface SearchResult {
   id: string;
@@ -49,6 +50,11 @@ function useDebounce<T extends (...args: any[]) => any>(
   }, []);
 
   return Object.assign(debouncedFunction, { cancel });
+}
+
+// Skeleton UI 컴포넌트
+function SearchSkeleton() {
+  return <div className="p-8 animate-pulse text-center text-muted-foreground">검색 결과 로딩 중...</div>;
 }
 
 export default function DownloadForm() {
@@ -256,6 +262,9 @@ export default function DownloadForm() {
     </div>
   );
 
+  // 검색 결과 useMemo
+  const memoizedSearchResults = useMemo(() => searchResults, [searchResults]);
+
   return (
     <Card>
       <CardHeader className="px-4 sm:px-6 py-3 sm:py-6">
@@ -314,18 +323,7 @@ export default function DownloadForm() {
             )}
 
             {/* 검색 결과 */}
-            {searchResults.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-medium text-sm sm:text-base">검색 결과</h3>
-                  <Badge variant="secondary" className="text-xs sm:text-sm">{searchResults.length}개</Badge>
-                </div>
-                
-                <div className="space-y-2 sm:space-y-3 max-h-80 sm:max-h-96 overflow-y-auto">
-                  {searchResults.map((result, index) => renderSearchResult(result, index))}
-                </div>
-              </div>
-            )}
+            {searchLoading ? <SearchSkeleton /> : memoizedSearchResults.map((result, index) => renderSearchResult(result, index))}
 
             {/* 검색 결과 없음 */}
             {searchQuery && !searchLoading && searchResults.length === 0 && !searchError && (

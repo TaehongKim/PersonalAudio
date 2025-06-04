@@ -1,6 +1,4 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+const nextConfig = {
   images: {
     remotePatterns: [
       {
@@ -35,14 +33,13 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  webpack: (config: any) => {
+  webpack: (config) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,
       fs: false,
       path: false,
       crypto: false,
     };
-    
     return config;
   },
 };

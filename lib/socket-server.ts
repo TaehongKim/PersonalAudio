@@ -2,6 +2,9 @@ import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import { DownloadStatus } from '../types/download-status';
 
+// globalThis에 io 프로퍼티 타입을 명시적으로 단언
+const _global = globalThis as typeof globalThis & { io?: Server };
+
 // 타입 정의
 interface DownloadStatusData {
   id: string;
@@ -63,7 +66,7 @@ interface PlaylistItemCompleteData {
 }
 
 // 실제 Socket.io 서버 인스턴스
-let io: Server | undefined = globalThis.io;
+let io: Server | undefined = _global.io;
 
 /**
  * Socket.io 서버 초기화
@@ -93,7 +96,7 @@ export function initSocketServer(httpServer: HttpServer) {
     maxHttpBufferSize: 1e6,
     allowUpgrades: true
   });
-  globalThis.io = io;
+  _global.io = io;
 
   // 연결 이벤트 핸들러
   io.on('connection', (socket: Socket) => {

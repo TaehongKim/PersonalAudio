@@ -9,7 +9,7 @@ NEXT_PUBLIC_AUTH_MIDDLEWARE_SECRET="j3neFBcTvU7yarpiEL4HML/Sbfy5OGTutpVpwx8gEAQ=
 KAKAO_CLIENT_ID="cc7f2d6cc8d10f8af02e4dd469f7f928"
 KAKAO_CLIENT_SECRET="kpHjxLuXE63SwlcAW6LK5mSDfZbV43Aq"
 # 기타 설정
-NODE_ENV="development"
+NODE_ENV="production"
 "@ | Out-File -FilePath .env -Encoding utf8
 
 MEDIA_STORAGE_PATH=./storage

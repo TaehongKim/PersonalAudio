@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
           name,
           description: description || `${groupName} 그룹에서 생성`,
           items: {
-            create: files.map((file, index) => ({
+            create: files.map((file: any, index: number) => ({
               fileId: file.id,
               order: index
             }))

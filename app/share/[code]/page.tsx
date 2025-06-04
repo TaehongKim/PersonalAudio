@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { use } from 'react'
 import { Share2, Download, Copy, Play, Pause, SkipBack, SkipForward, Repeat, Repeat1, Shuffle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -49,8 +49,12 @@ const truncateMiddle = (text: string, maxLength: number = 25): string => {
   return text.substring(0, frontChars) + ellipsis + text.substring(text.length - backChars);
 };
 
-export default function SharePage({ params }: { params: Promise<{ code: string }> }) {
-  const resolvedParams = use(params)
+// Skeleton UI 컴포넌트
+function ShareFilesSkeleton() {
+  return <div className="p-8 animate-pulse text-center text-muted-foreground">공유 파일 로딩 중...</div>;
+}
+
+export default function SharePage({ params }: { params: { code: string } }) {
   const [shareData, setShareData] = useState<ShareData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -135,7 +139,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
   useEffect(() => {
     async function loadShareData() {
       try {
-        const response = await fetch(`/api/shares/code/access?code=${resolvedParams.code}`)
+        const response = await fetch(`/api/shares/code/access?code=${params.code}`)
         if (!response.ok) {
           throw new Error('공유 데이터를 불러올 수 없습니다.')
         }
@@ -164,7 +168,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
       }
     }
     loadShareData()
-  }, [resolvedParams.code, loadPlaylist])
+  }, [params.code, loadPlaylist])
 
   const handleCopyLink = async () => {
     try {
@@ -177,7 +181,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
 
   const handleDownload = async (fileId: string) => {
     try {
-      const response = await fetch(`/api/shares/code/access?code=${resolvedParams.code}`, {
+      const response = await fetch(`/api/shares/code/access?code=${params.code}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileId })
@@ -210,7 +214,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
       
       // 각 파일의 다운로드 권한을 먼저 확인
       for (const fileId of fileIds) {
-        const response = await fetch(`/api/shares/code/access?code=${resolvedParams.code}`, {
+        const response = await fetch(`/api/shares/code/access?code=${params.code}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileId })
@@ -336,24 +340,17 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
     }
   }
 
-  if (loading) {
-    return (
-      <GlobalLayout showNavigation={false}>
-        <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-400 mx-auto mb-4" />
-            <p>공유 데이터를 불러오는 중...</p>
-          </div>
-        </div>
-      </GlobalLayout>
-    )
-  }
+  // 파일 리스트 useMemo
+  const memoizedFiles = useMemo(() => shareData?.files || [], [shareData]);
+
+  // 렌더링 부분에서 로딩 중이면 Skeleton UI 표시
+  if (loading) return <ShareFilesSkeleton />;
 
   if (error || !shareData) {
     return (
       <GlobalLayout showNavigation={false}>
-        <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8">
-          <div className="max-w-4xl mx-auto">
+        <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white w-full px-2 sm:px-4 py-4 md:py-8">
+          <div className="w-full max-w-4xl mx-auto flex flex-col gap-4">
             <Card className="bg-red-900/20 border-red-500/30">
               <CardContent className="p-6">
                 <h1 className="text-2xl font-bold text-red-400 mb-2">오류 발생</h1>
@@ -368,19 +365,19 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
 
   return (
     <GlobalLayout showNavigation={false}>
-      <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <div>
+      <div className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white w-full px-2 sm:px-4 py-4 md:py-8">
+        <div className="w-full max-w-4xl mx-auto flex flex-col gap-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-6 w-full">
+            <div className="flex-1 min-w-0 w-full">
               <h1 className="text-3xl font-bold mb-2">공유된 파일</h1>
               <p className="text-gray-400">
                 {formatDate(shareData.createdAt)}에 공유됨 • {shareData.files.length}개 파일
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:gap-2">
               <Button
                 onClick={handleBulkDownload}
-                className="bg-blue-600 text-white hover:bg-blue-700"
+                className="bg-blue-600 text-white hover:bg-blue-700 w-full sm:w-auto"
                 disabled={shareData.files.length === 0}
               >
                 <Download className="w-4 h-4 mr-2" />
@@ -388,7 +385,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
               </Button>
               <Button
                 onClick={handleCopyLink}
-                className="bg-white text-black hover:bg-gray-200"
+                className="bg-white text-black hover:bg-gray-200 w-full sm:w-auto"
               >
                 <Copy className="w-4 h-4 mr-2" />
                 링크 복사
@@ -396,10 +393,10 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
             </div>
           </div>
 
-          <Card className="bg-white/5 border-white/10 mb-6">
+          <Card className="bg-white/5 border-white/10 mb-6 w-full">
             <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between w-full">
+                <div className="space-y-1 flex-1 min-w-0 w-full">
                   <div className="flex items-center space-x-2">
                     <Share2 className="w-5 h-5 text-purple-400" />
                     <span className="font-medium">공유 정보</span>
@@ -417,7 +414,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
                     )}
                   </div>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-row flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
                   <Button
                     className={`h-10 w-10 ${
                       playerState.shuffle 
@@ -481,15 +478,15 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
             </CardContent>
           </Card>
 
-          <ScrollArea className="h-[calc(100vh-20rem)] rounded-lg">
-            <div className="space-y-2 pr-4">
-              {shareData.files.map((file) => {
+          <ScrollArea className="h-[calc(100vh-20rem)] rounded-lg w-full">
+            <div className="flex flex-col gap-2 w-full pr-0 sm:pr-4">
+              {memoizedFiles.map((file) => {
                 const thumbnailUrl = getThumbnailUrl(file);
                 
                 return (
-                  <Card key={file.id} className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors">
-                    <CardContent className="p-3">
-                      <div className="flex items-center">
+                  <Card key={file.id} className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors w-full">
+                    <CardContent className="p-3 w-full">
+                      <div className="flex items-center w-full min-w-0">
                         <div className="relative">
                           <div className="w-12 h-12 bg-white/10 rounded mr-3 flex items-center justify-center overflow-hidden">
                             {thumbnailUrl ? (
@@ -511,6 +508,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
                                       : '<div class="text-gray-400 text-xl">📄</div>';
                                   }
                                 }}
+                                loading="lazy"
                               />
                             ) : (
                               <div className="text-gray-400 text-xl">
@@ -528,7 +526,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
                             )}
                           </div>
                         </div>
-                        <div className="flex-1 min-w-0 mr-4">
+                        <div className="flex-1 min-w-0 mr-4 w-full">
                           <p className="font-medium truncate" title={file.title}>
                             {truncateMiddle(file.title, 30)}
                           </p>
@@ -547,7 +545,7 @@ export default function SharePage({ params }: { params: Promise<{ code: string }
                             )}
                           </div>
                         </div>
-                        <div className="flex space-x-2">
+                        <div className="flex flex-row flex-wrap gap-2 w-full sm:w-auto mt-2 sm:mt-0 justify-end">
                           {file.fileType.toLowerCase().includes('mp3') && (
                             <Button
                               size="icon"

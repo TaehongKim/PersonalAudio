@@ -25,8 +25,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" suppressHydrationWarning>
-      <body className={cn("min-h-screen bg-background font-sans antialiased", inter.className)} suppressHydrationWarning>
+    <html lang="ko">
+      <body className={cn("min-h-screen bg-background font-sans antialiased", inter.className)}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
           <CustomThemeProvider>
             <SocketProvider>

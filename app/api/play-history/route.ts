@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
     // 파일 정보와 함께 반환
     const files = await Promise.all(
-      topPlayed.map(async (item) => {
+      topPlayed.map(async (item: any) => {
         const file = await prisma.file.findUnique({
           where: { id: item.fileId }
         });
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      topPlayed: files.filter(f => f.file), // null 파일 제외
+      topPlayed: files.filter((f: any) => f.file), // null 파일 제외
       recentHistory,
       period: { days, from: dateFrom, to: new Date() }
     });

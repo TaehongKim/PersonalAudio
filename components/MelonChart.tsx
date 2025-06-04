@@ -492,3 +492,5 @@ export function MelonChart() {
     </div>
   )
 }
+
+export default MelonChart;

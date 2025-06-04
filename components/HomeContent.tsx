@@ -677,3 +677,5 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
   )
 }
 
+export default HomeContent;
+

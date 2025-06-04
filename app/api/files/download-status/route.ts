@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
 import { prisma } from '@/lib/prisma';
-import { DownloadQueue } from '@prisma/client';
 
 export async function GET() {
   try {
@@ -26,7 +25,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      queues: queues.map((queue: DownloadQueue) => {
+      queues: queues.map((queue: any) => {
         // error 필드에 저장된 JSON options을 파싱
         let options: Record<string, unknown> = {};
         try {

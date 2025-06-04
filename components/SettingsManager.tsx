@@ -764,3 +764,5 @@ export function SettingsManager({ handleLogout }: SettingsManagerProps) {
     </div>
   )
 }
+
+export default SettingsManager;

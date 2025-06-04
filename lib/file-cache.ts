@@ -371,12 +371,12 @@ export async function getCacheHitRatio(): Promise<{
       take: 30
     });
 
-    const totalHits = stats.reduce((sum, stat) => sum + stat.totalHits, 0);
-    const totalMisses = stats.reduce((sum, stat) => sum + stat.totalMisses, 0);
+    const totalHits = stats.reduce((sum: any, stat: any) => sum + stat.totalHits, 0);
+    const totalMisses = stats.reduce((sum: any, stat: any) => sum + stat.totalMisses, 0);
     const totalRequests = totalHits + totalMisses;
     const hitRatio = totalRequests > 0 ? (totalHits / totalRequests) * 100 : 0;
 
-    const recentStats = stats.map(stat => ({
+    const recentStats = stats.map((stat: any) => ({
       date: stat.date.toISOString().split('T')[0],
       hits: stat.totalHits,
       misses: stat.totalMisses,

@@ -341,3 +341,5 @@ export function RecentPlayed({ onPlayFile }: RecentPlayedProps) {
     </div>
   );
 }
+
+export default RecentPlayed;

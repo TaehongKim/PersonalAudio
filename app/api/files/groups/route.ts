@@ -28,7 +28,7 @@ export async function GET() {
 
     // 각 그룹의 파일 목록 조회
     const groups = await Promise.all(
-      groupData.map(async (group) => {
+      groupData.map(async (group: { groupType: string | null, groupName: string | null, _count: { id: number } }) => {
         const files = await prisma.file.findMany({
           where: {
             groupType: group.groupType,
@@ -57,7 +57,7 @@ export async function GET() {
     );
 
     return NextResponse.json({
-      groups: groups.filter(group => group.fileCount > 0)
+      groups: groups.filter((group: { fileCount: number }) => group.fileCount > 0)
     });
 
   } catch (error) {

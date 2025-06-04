@@ -24,7 +24,7 @@ export async function GET() {
 
     // 2. 파일 시스템 상태 체크
     const fileStatusList = await Promise.all(
-      dbFiles.map(async (file) => {
+      dbFiles.map(async (file: any) => {
         try {
           const exists = fsSync.existsSync(file.path);
           let actualSize = 0;
@@ -67,14 +67,14 @@ export async function GET() {
     // 3. 상태별 통계 계산
     const stats = {
       total: fileStatusList.length,
-      ok: fileStatusList.filter(f => f.status === 'ok').length,
-      missing: fileStatusList.filter(f => f.status === 'missing').length,
-      sizeMismatch: fileStatusList.filter(f => f.status === 'size_mismatch').length,
-      error: fileStatusList.filter(f => f.status === 'error').length,
+      ok: fileStatusList.filter((f: any) => f.status === 'ok').length,
+      missing: fileStatusList.filter((f: any) => f.status === 'missing').length,
+      sizeMismatch: fileStatusList.filter((f: any) => f.status === 'size_mismatch').length,
+      error: fileStatusList.filter((f: any) => f.status === 'error').length,
     };
 
     // 4. storage 폴더의 orphaned 파일들 찾기 (DB에는 없지만 파일 시스템에는 있는 파일들)
-    const orphanedFiles = await findOrphanedFiles(dbFiles.map(f => f.path));
+    const orphanedFiles = await findOrphanedFiles(dbFiles.map((f: any) => f.path));
 
     return NextResponse.json({
       success: true,

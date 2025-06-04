@@ -686,3 +686,5 @@ export function PlaylistManager() {
     </div>
   );
 }
+
+export default PlaylistManager;

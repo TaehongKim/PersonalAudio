@@ -1234,3 +1234,5 @@ export const DownloadManager = memo(function DownloadManager() {
     </div>
   )
 });
+
+export default DownloadManager;

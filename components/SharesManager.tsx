@@ -35,6 +35,16 @@ interface ShareFormData {
   maxDownloads: number | null
 }
 
+// 긴 텍스트를 중간에 ... 으로 줄이는 유틸리티 함수
+const truncateMiddle = (text: string, maxLength: number = 25): string => {
+  if (text.length <= maxLength) return text;
+  const ellipsis = '...';
+  const charsToShow = maxLength - ellipsis.length;
+  const frontChars = Math.ceil(charsToShow / 2);
+  const backChars = Math.floor(charsToShow / 2);
+  return text.substring(0, frontChars) + ellipsis + text.substring(text.length - backChars);
+};
+
 export function SharesManager() {
   const [shares, setShares] = useState<ShareData[]>([])
   const [loading, setLoading] = useState(true)
@@ -224,7 +234,7 @@ export function SharesManager() {
               <CardContent className="p-4">
                 <div className="flex justify-between items-start mb-3">
                   <h3 className="font-semibold text-lg truncate pr-2">
-                    {share.files.length > 0 ? share.files[0].title : '제목 없음'}
+                    {share.files.length > 0 ? truncateMiddle(share.files[0].title, 25) : '제목 없음'}
                     {share.files.length > 1 && ` 외 ${share.files.length - 1}곡`}
                   </h3>
                   <DropdownMenu>
@@ -319,7 +329,7 @@ export function SharesManager() {
                     <div className="space-y-1">
                       {share.files.slice(0, 3).map((file) => (
                         <div key={file.id} className="text-xs text-gray-400">
-                          <span className="truncate">{file.title}</span>
+                          <span className="truncate">{truncateMiddle(file.title, 25)}</span>
                           <span className="text-gray-500 ml-1">({file.fileType})</span>
                         </div>
                       ))}
@@ -349,7 +359,7 @@ export function SharesManager() {
       )}
 
       {/* 설정 변경 다이얼로그 */}
-      <Dialog open={!!selectedShareId} onOpenChange={(open) => !open && setSelectedShareId(null)}>
+      <Dialog open={!!selectedShareId} onOpenChange={(open: boolean) => !open && setSelectedShareId(null)}>
         <DialogContent className="bg-gray-900 border-gray-800 text-white">
           <DialogHeader>
             <DialogTitle>공유 링크 설정 변경</DialogTitle>
@@ -359,7 +369,7 @@ export function SharesManager() {
               <Label htmlFor="expiry">만료 시간</Label>
               <Select 
                 value={formData.expiresIn?.toString() || 'null'} 
-                onValueChange={(value) => setFormData(prev => ({
+                onValueChange={(value: string) => setFormData(prev => ({
                   ...prev,
                   expiresIn: value === 'null' ? null : parseInt(value)
                 }))}
@@ -419,3 +429,5 @@ export function SharesManager() {
     </div>
   )
 }
+
+export default SharesManager;

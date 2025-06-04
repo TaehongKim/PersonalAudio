@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import fs from 'fs/promises';
-import { Prisma } from '@prisma/client';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,7 +11,7 @@ export async function GET(request: NextRequest) {
     const fileType = searchParams.get('fileType') || '';
 
     // WHERE 조건 구성
-    const where: Prisma.FileWhereInput = {};
+    const where: any = {};
     
     if (search) {
       where.OR = [
@@ -29,7 +28,7 @@ export async function GET(request: NextRequest) {
     const validSortFields = ['createdAt', 'title', 'artist', 'fileSize', 'duration', 'downloads'];
     const validSortOrders = ['asc', 'desc'];
     
-    let orderBy: Prisma.FileOrderByWithRelationInput = { createdAt: 'desc' };
+    let orderBy: any = { createdAt: 'desc' };
     if (validSortFields.includes(sortBy) && validSortOrders.includes(sortOrder)) {
       switch (sortBy) {
         case 'createdAt':
@@ -84,13 +83,13 @@ export async function GET(request: NextRequest) {
     });
     
     const groupCountMap = new Map<string, number>();
-    groupCounts.forEach(group => {
+    groupCounts.forEach((group: any) => {
       const groupKey = `${group.groupType || 'unknown'}_${group.groupName || 'unknown'}`;
       groupCountMap.set(groupKey, group._count.id);
     });
 
     // 4. 파일 목록에 그룹별 전체 파일 수 추가
-    const filesWithGroupCount = files.map(file => {
+    const filesWithGroupCount = files.map((file: any) => {
       const groupKey = `${file.groupType || 'unknown'}_${file.groupName || 'unknown'}`;
       return {
         ...file,
@@ -189,7 +188,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({
       success: true,
       deletedCount: deleteResult.count,
-      deletionResults: deletionResults.map(result => 
+      deletionResults: deletionResults.map((result: any) => 
         result.status === 'fulfilled' ? result.value : result.reason
       )
     });

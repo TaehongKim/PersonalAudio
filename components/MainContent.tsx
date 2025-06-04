@@ -563,3 +563,5 @@ export const MainContent = memo(function MainContent({ setActiveTab }: MainConte
     </div>
   );
 });
+
+export default MainContent;

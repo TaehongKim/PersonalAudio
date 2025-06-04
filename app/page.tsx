@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense, lazy } from "react"
 import { Menu } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sidebar } from "../components/Sidebar"
@@ -65,6 +65,21 @@ function MobileHeader({ activeTab, onMenuClick }: { activeTab: string, onMenuCli
       </div>
     </div>
   )
+}
+
+const FilesManagerLazy = lazy(() => import('../components/FilesManager') as any as Promise<{ default: typeof FilesManager }>)
+const SharesManagerLazy = lazy(() => import('../components/SharesManager') as any as Promise<{ default: typeof SharesManager }>)
+const PlaylistManagerLazy = lazy(() => import('../components/PlaylistManager') as any as Promise<{ default: typeof PlaylistManager }>)
+const DownloadManagerLazy = lazy(() => import('../components/DownloadManager') as any as Promise<{ default: typeof DownloadManager }>)
+const MelonChartLazy = lazy(() => import('../components/MelonChart') as any as Promise<{ default: typeof MelonChart }>)
+const MainContentLazy = lazy(() => import('../components/MainContent') as any as Promise<{ default: typeof MainContent }>)
+const RecentPlayedLazy = lazy(() => import('../components/RecentPlayed') as any as Promise<{ default: typeof RecentPlayed }>)
+const SettingsManagerLazy = lazy(() => import('../components/SettingsManager') as any as Promise<{ default: typeof SettingsManager }>)
+const HomeContentLazy = lazy(() => import('../components/HomeContent') as any as Promise<{ default: typeof HomeContent }>)
+
+// Skeleton 컴포넌트 예시 (간단한 뼈대 UI)
+function PageSkeleton() {
+  return <div className="p-8 animate-pulse text-center text-muted-foreground">로딩 중...</div>;
 }
 
 export default function Home() {
@@ -178,16 +193,18 @@ export default function Home() {
             
             {/* 메인 콘텐츠 */}
             <div className={`flex flex-1 overflow-hidden ${isMobile ? 'pt-14 pb-36' : 'pb-20'}`}>
-              {activeTab === "home" && <HomeContent setActiveTab={setActiveTab} />}
-              {activeTab === "youtube" && <MainContent setActiveTab={setActiveTab} />}
-              {activeTab === "melon" && <MelonChart />}
-              {activeTab === "files" && <FilesManager />}
-              {activeTab === "playlist" && <PlaylistManager />}
-              {activeTab === "recent" && <RecentPlayed />}
-              {activeTab === "downloads" && <DownloadManager />}
-              {activeTab === "shares" && <SharesManager />}
+              {activeTab === "home" && <Suspense fallback={<PageSkeleton />}><HomeContentLazy setActiveTab={setActiveTab} /></Suspense>}
+              {activeTab === "youtube" && <Suspense fallback={<PageSkeleton />}><MainContentLazy setActiveTab={setActiveTab} /></Suspense>}
+              {activeTab === "melon" && <Suspense fallback={<PageSkeleton />}><MelonChartLazy /></Suspense>}
+              {activeTab === "files" && <Suspense fallback={<PageSkeleton />}><FilesManagerLazy /></Suspense>}
+              {activeTab === "playlist" && <Suspense fallback={<PageSkeleton />}><PlaylistManagerLazy /></Suspense>}
+              {activeTab === "recent" && <Suspense fallback={<PageSkeleton />}><RecentPlayedLazy /></Suspense>}
+              {activeTab === "downloads" && <Suspense fallback={<PageSkeleton />}><DownloadManagerLazy /></Suspense>}
+              {activeTab === "shares" && <Suspense fallback={<PageSkeleton />}><SharesManagerLazy /></Suspense>}
               {activeTab === "settings" && (
-                <SettingsManager handleLogout={handleLogout} />
+                <Suspense fallback={<PageSkeleton />}>
+                  <SettingsManagerLazy handleLogout={handleLogout} />
+                </Suspense>
               )}
             </div>
             
