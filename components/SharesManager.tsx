@@ -243,7 +243,6 @@ export function SharesManager() {
                         size="icon" 
                         variant="ghost" 
                         className="h-8 w-8"
-                        disabled={processingAction?.includes(share.id)}
                       >
                         {processingAction?.includes(share.id) ? (
                           <Loader2 className="h-4 w-4 animate-spin" />

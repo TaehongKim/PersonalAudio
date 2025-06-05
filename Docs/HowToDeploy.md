@@ -40,6 +40,28 @@ sudo yt-dlp -U
 sudo apt upgrade -y ffmpeg
 ```
 
+### bin 폴더 직접 복사/링크 (ENOENT 오류 등 발생 시)
+- 서버 코드가 `/프로젝트경로/bin/yt-dlp`, `/bin/ffmpeg`를 참조할 때 해당 파일이 없으면 ENOENT 오류가 발생할 수 있음
+- 자동 설치가 실패하거나, 시스템에만 설치된 경우 아래처럼 bin 폴더에 직접 복사 또는 심볼릭 링크를 생성해야 함
+
+#### 복사 예시
+```bash
+mkdir -p /home/사용자명/PersonalAudio/bin
+cp /usr/local/bin/yt-dlp /home/사용자명/PersonalAudio/bin/yt-dlp
+cp /usr/bin/ffmpeg /home/사용자명/PersonalAudio/bin/ffmpeg
+chmod +x /home/사용자명/PersonalAudio/bin/yt-dlp
+chmod +x /home/사용자명/PersonalAudio/bin/ffmpeg
+```
+
+#### 심볼릭 링크 예시
+```bash
+ln -s /usr/local/bin/yt-dlp /home/사용자명/PersonalAudio/bin/yt-dlp
+ln -s /usr/bin/ffmpeg /home/사용자명/PersonalAudio/bin/ffmpeg
+```
+- Windows는 bin 폴더에 직접 exe 파일을 복사
+- 코드가 bin 폴더만 고정 참조한다면 반드시 bin/yt-dlp, bin/ffmpeg가 실제로 존재해야 함
+- 시스템 PATH도 fallback 하도록 코드 개선을 권장
+
 ## 2. 환경 변수 설정
 - `.env.example` 참고, 실제 값으로 `.env` 생성
 - DB, 포트, 외부 API 등 환경별 분리
@@ -83,10 +105,10 @@ module.exports = {
       name: 'personalaudio',
       script: 'pnpm',
       args: 'start',
-      cwd: '/home/ubuntu/PersonalAudio',
+      cwd: '/home/thkim/PersonalAudio',
       env: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3300
       },
       env_file: '.env',
       instances: 1,
@@ -112,6 +134,15 @@ pm2 save
 pm2 startup
 ```
 - 시스템 재부팅 시 자동 실행: `pm2 startup` 후 안내 명령 실행, `pm2 save`
+
+#### [실전 주의] PM2 startup과 ecosystem.config.js의 관계
+- `pm2 startup`은 **현재 실행 중인 프로세스 리스트**만 자동 복원하며, `ecosystem.config.js` 파일 자체를 자동으로 다시 읽지 않음
+- `ecosystem.config.js`를 수정했다면 반드시 아래 순서로 적용해야 함:
+  1. `pm2 start ecosystem.config.js` (변경사항 반영)
+  2. `pm2 save` (현재 상태 저장)
+  3. `pm2 startup` (최초 1회, 안내 명령도 실행)
+- 서버가 재부팅되면 마지막으로 `pm2 save`한 시점의 프로세스 상태가 복원됨
+- config 파일만 수정하고 `pm2 start`/`pm2 save`를 하지 않으면, 재부팅 시 변경 내용이 반영되지 않음
 
 ## 6. Nginx + SSL 설정 (music.lunajj.com)
 ### 6-1. Nginx 설정 예시
@@ -140,20 +171,20 @@ server {
 
     # 정적 파일
     location /_next/static {
-        alias /home/ubuntu/PersonalAudio/.next/static;
+        alias /home/thkim/PersonalAudio/.next/static;
         expires 1y;
         add_header Cache-Control "public, immutable";
         access_log off;
     }
     location /favicon.ico {
-        alias /home/ubuntu/PersonalAudio/public/favicon.ico;
+        alias /home/thkim/PersonalAudio/public/favicon.ico;
         expires 1y;
         add_header Cache-Control "public, immutable";
         access_log off;
     }
     # WebSocket 지원
     location /socket.io/ {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:3300;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -165,7 +196,7 @@ server {
     }
     # 메인 프록시
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:3300;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";

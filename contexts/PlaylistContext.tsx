@@ -49,6 +49,9 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const normalizePlaylists = (playlists: Playlist[]): Playlist[] =>
+    playlists.map(p => ({ ...p, isSystem: !!p.isSystem }));
+
   const refreshPlaylists = async () => {
     try {
       setLoading(true);
@@ -60,7 +63,7 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
       }
       
       const data = await response.json();
-      setPlaylists(data.playlists || []);
+      setPlaylists(normalizePlaylists(data.playlists || []));
     } catch (err) {
       console.error('플레이리스트 로드 오류:', err);
       setError(err instanceof Error ? err.message : '플레이리스트를 불러오는 중 오류가 발생했습니다.');
@@ -70,7 +73,10 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
   };
 
   const addPlaylist = (playlist: Playlist) => {
-    setPlaylists(prev => [playlist, ...prev]);
+    setPlaylists(prev => [
+      ...normalizePlaylists([playlist]),
+      ...prev
+    ]);
   };
 
   const removePlaylist = (id: string) => {
