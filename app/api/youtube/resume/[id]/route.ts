@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resumeDownload } from '@/lib/queue-manager';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
+import { prisma } from '@/lib/prisma';
 
 export async function POST(
   request: NextRequest,
@@ -18,8 +19,14 @@ export async function POST(
       return NextResponse.json({ error: 'Download ID is required' }, { status: 400 });
     }
 
+    const queueItem = await prisma.downloadQueue.findUnique({ where: { id } });
+    if (!queueItem) {
+      return NextResponse.json({
+        success: true,
+        message: '이미 삭제됨(존재하지 않음)'
+      });
+    }
     const result = await resumeDownload(id);
-    
     return NextResponse.json({
       success: true,
       message: '다운로드가 재개되었습니다.',

@@ -23,15 +23,12 @@ export async function DELETE(
     }
 
     // 다운로드 큐에서 해당 작업 조회
-    const queueItem = await prisma.downloadQueue.findUnique({
-      where: { id }
-    });
-
+    const queueItem = await prisma.downloadQueue.findUnique({ where: { id } });
     if (!queueItem) {
       return NextResponse.json({
-        success: false,
-        message: '해당 ID의 다운로드 작업을 찾을 수 없습니다.'
-      }, { status: 404 });
+        success: true,
+        message: '이미 삭제됨(존재하지 않음)'
+      });
     }
 
     // 실패하거나 완료된 작업만 삭제 허용

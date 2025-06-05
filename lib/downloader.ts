@@ -22,6 +22,8 @@ import http from 'http';
 import url from 'url';
 // import type { DownloadQueue } from '@prisma/client';
 import { DownloadStatus, DownloadType, FileGroupType } from '../types/download-status';
+import os from 'os';
+import type { ChildProcess } from 'child_process';
 
 // 바이너리 경로 가져오기
 const { ytdlp: YTDLP_PATH, ffmpeg: FFMPEG_PATH } = getBinaryPaths();
@@ -53,6 +55,17 @@ interface YoutubePlaylistInfo {
   uploader?: string;
   entries: Array<YoutubeInfo & { url?: string }>;
   count: number;
+}
+
+// queueId별 프로세스 관리 맵
+const processMap = new Map<string, ChildProcess>();
+
+function killProcessByOS(child: ChildProcess) {
+  if (os.platform() === 'win32') {
+    child.kill(); // 윈도우는 SIGKILL/SIGTERM 지원이 제한적, 기본 kill 사용
+  } else {
+    child.kill('SIGKILL'); // 리눅스/맥은 SIGKILL로 강제 종료
+  }
 }
 
 /**
@@ -538,6 +551,11 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
           url
         ]);
         
+        processMap.set(queueId, ytdlpProcess);
+        ytdlpProcess.on('close', () => {
+          processMap.delete(queueId);
+        });
+        
         let lastProgress = 0;
         let ytdlpStderr = ''; // stderr 내용을 저장할 변수
         
@@ -812,6 +830,11 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
           url
         ]);
         
+        processMap.set(queueId, ytdlpProcess);
+        ytdlpProcess.on('close', () => {
+          processMap.delete(queueId);
+        });
+        
         let ytdlpStderr = ''; // stderr 내용을 저장할 변수
         ytdlpProcess.stderr.on('data', (data) => {
           const errChunk = data.toString();
@@ -1075,6 +1098,11 @@ export async function downloadPlaylistMp3(queueId: string, url: string) {
               itemUrl
             ]);
             
+            processMap.set(queueId, ytdlpProcess);
+            ytdlpProcess.on('close', () => {
+              processMap.delete(queueId);
+            });
+            
             ytdlpProcess.stdout.on('data', (data) => {
               // 진행률 파싱 로직
               const output = data.toString();
@@ -1248,6 +1276,11 @@ export async function downloadPlaylistVideo(queueId: string, url: string, option
               itemUrl
             ]);
             
+            processMap.set(queueId, ytdlpProcess);
+            ytdlpProcess.on('close', () => {
+              processMap.delete(queueId);
+            });
+            
             let ytdlpStderr = ''; // stderr 내용을 저장할 변수
             ytdlpProcess.stderr.on('data', (data) => {
               const errChunk = data.toString();
@@ -1364,5 +1397,23 @@ export async function downloadPlaylistVideo(queueId: string, url: string, option
     
     throw error;
   }
+}
+
+// cancelDownload에서 프로세스 종료 추가
+export async function cancelDownload(id: string) {
+  // 프로세스 종료 시도
+  const proc = processMap.get(id);
+  if (proc) {
+    killProcessByOS(proc);
+    processMap.delete(id);
+  }
+  // DB 상태 변경
+  return prisma.downloadQueue.update({
+    where: { id },
+    data: {
+      status: DownloadStatus.FAILED,
+      error: '사용자에 의해 취소됨',
+    },
+  });
 }
 

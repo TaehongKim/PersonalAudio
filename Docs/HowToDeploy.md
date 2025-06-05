@@ -276,5 +276,91 @@ docker-compose up -d --build
 - 운영 중 장애 발생 시 로그/캐시/프로세스 점검
 - 윈도우 파일 잠금, 캐시 꼬임 등 실전 이슈 반영
 
+## 7. Git pull 시 dev.db 충돌/에러 해결법
+
+### 증상
+- git pull 시 아래와 같은 에러가 발생할 수 있음:
+
+```
+error: Your local changes to the following files would be overwritten by merge:
+        prisma/dev.db
+Please commit your changes or stash them before you merge.
+Aborting
+```
+
+### 원인
+- prisma/dev.db 파일(로컬 DB)이 변경된 상태에서 pull을 시도하면, git이 병합을 중단함
+- dev.db는 바이너리 파일로, 충돌 시 수동 조치가 필요함
+
+### 해결 방법
+1. **로컬 dev.db를 임시로 저장(stash) 후 pull**
+   ```bash
+   git stash push prisma/dev.db
+   git pull
+   git stash pop # 필요시
+   ```
+2. **dev.db를 커밋 후 pull**
+   ```bash
+   git add prisma/dev.db
+   git commit -m "dev.db 임시 커밋"
+   git pull
+   # 필요시 커밋을 되돌리거나, 최신 dev.db로 덮어쓰기
+   ```
+3. **dev.db를 삭제 후 pull (로컬 DB 데이터가 필요 없을 때)**
+   ```bash
+   rm prisma/dev.db
+   git pull
+   # 필요시 마이그레이션 재적용
+   pnpm prisma migrate deploy
+   ```
+4. **dev.db를 .gitignore에 추가(운영 환경에서 DB 파일 관리 안 할 때)**
+   - 팀/운영 정책에 따라 dev.db를 git에서 관리하지 않는 것도 고려
+
+### 실전 배포/운영 시 주의
+- 운영 서버에서는 dev.db 충돌 시 반드시 백업 후 조치
+- DB 충돌/동기화가 잦으면, DB 파일을 git에서 제외하고 dump/마이그레이션으로만 관리하는 것을 권장
+- git pull 전 반드시 dev.db 변경사항을 확인하고, 필요시 위 방법으로 안전하게 병합/동기화
+
+### [실전] DB 파일을 git에서 제외하고 dump/마이그레이션으로만 관리하는 방법
+
+1. **.gitignore에 DB 파일 추가**
+   - `prisma/dev.db` 또는 운영 DB 파일명을 `.gitignore`에 추가
+   ```bash
+   echo 'prisma/dev.db' >> .gitignore
+   git rm --cached prisma/dev.db
+   git commit -m "dev.db git 추적 제외"
+   git push
+   ```
+2. **DB 동기화는 dump/마이그레이션만 사용**
+   - DB 파일을 직접 공유하지 않고, 아래 방법으로 동기화
+   - **Prisma 마이그레이션 기반**
+     ```bash
+     pnpm prisma migrate deploy
+     # 필요시 seed
+     pnpm prisma db seed
+     ```
+   - **DB dump/복원 기반(예: SQLite)**
+     - dump:
+       ```bash
+       sqlite3 prisma/dev.db .dump > db.sql
+       ```
+     - 복원:
+       ```bash
+       sqlite3 prisma/dev.db < db.sql
+       ```
+   - MySQL/Postgres 등은 각 DB의 dump/restore 명령 사용
+3. **팀원/운영 서버는 항상 마이그레이션으로 DB 생성/동기화**
+   - DB 파일을 git에서 제외하면, 새 서버/팀원은 아래처럼 동기화
+   ```bash
+   git pull
+   pnpm install
+   pnpm prisma migrate deploy
+   # 필요시 seed
+   pnpm prisma db seed
+   ```
+4. **운영/협업 시 주의**
+   - DB 파일을 git에서 제외하면, 실시간 데이터 동기화는 dump/restore 또는 마이그레이션으로만 가능
+   - 중요한 데이터는 주기적으로 dump(백업)하고, 운영/개발 DB는 분리 관리 권장
+
 ---
 상세/실전 경험은 Process.MD, PRD_completed.md 참고. 
