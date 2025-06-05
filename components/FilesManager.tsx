@@ -904,46 +904,52 @@ export const FilesManager = memo(function FilesManager() {
   function getGroupKeyFromQueue(queue: any): string | null {
     try {
       if (queue.options?.isMelonChart) {
-        const chartSize = queue.options.chartSize || 30
-        return `MELON_CHART_TOP${chartSize}`
+        const chartSize = queue.options.chartSize || 30;
+        const date = queue.options.date || '';
+        return `melon_chart_TOP${chartSize}_${date}`;
       }
-      
       if (queue.type?.includes('PLAYLIST')) {
-        return `YOUTUBE_PLAYLIST_${queue.options?.playlistName || 'playlist'}`
+        return `youtube_playlist_${queue.options?.playlistName || 'playlist'}`;
       }
-      
       if (queue.type?.includes('MP3') || queue.type?.includes('VIDEO')) {
-        const date = new Date(queue.createdAt).toISOString().slice(0, 10).replace(/-/g, '')
-        return `YOUTUBE_SINGLE_${date}`
+        const date = new Date(queue.createdAt).toISOString().slice(0, 10).replace(/-/g, '');
+        return `youtube_single_${date}`;
       }
-      
-      return null
+      return null;
     } catch {
-      return null
+      return null;
     }
   }
 
+  const groupDownloadQueues = useMemo(() => {
+    const map: Record<string, DownloadQueue> = {};
+    Object.values(downloadQueues).forEach((queue: any) => {
+      const groupKey = getGroupKeyFromQueue(queue);
+      if (groupKey) map[groupKey] = queue;
+    });
+    return map;
+  }, [downloadQueues]);
+
   function getGroupDownloadStatus(group: FileGroup) {
-    const groupKey = `${group.groupType}_${group.groupName}`
-    const queueData = downloadQueues[groupKey]
-    
-    if (!queueData) {
-      return { status: 'none', progress: 0 }
+    const groupKey = `${group.groupType}_${group.groupName}`;
+    const queueData = groupDownloadQueues[groupKey];
+    if (queueData) {
+      if (queueData.status === 'processing' || queueData.status === 'pending') {
+        return { status: 'processing', progress: queueData.progress || 0 };
+      }
+      if (queueData.status === 'completed') {
+        return { status: 'completed', progress: 100 };
+      }
+      if (queueData.status === 'failed') {
+        return { status: 'failed', progress: 0 };
+      }
     }
-    
-    if (queueData.status === 'processing') {
-      return { status: 'processing', progress: queueData.progress || 0 }
+    // 큐에 없으면 group.files 중 진행중 파일이 있는지 체크
+    const hasProcessing = group.files.some(f => downloadQueues[f.id]?.status === 'processing' || downloadQueues[f.id]?.status === 'pending');
+    if (hasProcessing) {
+      return { status: 'processing', progress: 0 };
     }
-    
-    if (queueData.status === 'completed') {
-      return { status: 'completed', progress: 100 }
-    }
-    
-    if (queueData.status === 'failed') {
-      return { status: 'failed', progress: 0 }
-    }
-    
-    return { status: 'none', progress: 0 }
+    return { status: 'none', progress: 0 };
   }
 
   const renderFileItem = (file: FileData) => (
