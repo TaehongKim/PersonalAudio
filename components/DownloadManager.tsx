@@ -371,13 +371,19 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
   // 1. 다운로드 완전 삭제 함수 추가
   const deleteDownload = useCallback(async (jobId: string) => {
     // 1. 진행중이면 먼저 취소
-    await cancelDownload(jobId);
+    try {
+      await cancelDownload(jobId);
+    } catch {}
     // 2. DB에서 완전히 삭제
-    await fetch(`/api/youtube/delete/${jobId}`, {
-      method: 'DELETE',
-      credentials: 'include'
-    });
-  }, [cancelDownload]);
+    try {
+      await fetch(`/api/youtube/delete/${jobId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+    } catch {}
+    // 3. 삭제 후 목록 갱신
+    await loadQueue();
+  }, [cancelDownload, loadQueue]);
 
   // 실패한 작업들 삭제 (delete-batch 제거, 반복 호출로 통일)
   const deleteFailedTasks = async (jobIds: string[]) => {
@@ -386,13 +392,14 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
     }
     setDownloadTasks(prev => prev.filter(task => !jobIds.includes(task.jobId)));
     setSelectedTasks(prev => prev.filter(id => !jobIds.includes(id)));
+    await loadQueue();
   };
 
   // 모든 실패 작업 삭제
   const clearAllFailedTasks = async () => {
     const failedJobIds = downloadTasks.filter(task => task.status === DownloadStatus.FAILED).map(task => task.jobId);
     await deleteFailedTasks(failedJobIds);
-    loadQueue();
+    await loadQueue();
   };
 
   // 선택된 실패 작업들 삭제
@@ -402,7 +409,7 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
       .map(task => task.jobId);
     await deleteFailedTasks(selectedFailedJobIds);
     setSelectedTasks([]);
-    loadQueue();
+    await loadQueue();
   };
 
   // 선택된 작업 중지
@@ -526,8 +533,7 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
       await deleteDownload(jobId);
     }
     setSelectedTasks([]);
-    // 삭제 후 목록 새로고침
-    loadQueue();
+    await loadQueue();
   };
 
   if (!isLoggedIn) {
