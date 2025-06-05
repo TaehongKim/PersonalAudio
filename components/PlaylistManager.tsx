@@ -452,7 +452,11 @@ export function PlaylistManager() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {playlists.map((playlist) => (
-            <Card key={playlist.id} className="bg-white/10 border-white/20 hover:bg-white/15 transition-colors">
+            <Card
+              key={playlist.id}
+              className="bg-white/10 border-white/20 hover:bg-white/15 transition-colors overflow-visible cursor-pointer"
+              onClick={() => showPlaylistDetail(playlist)}
+            >
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
@@ -473,7 +477,7 @@ export function PlaylistManager() {
                         <div className="flex gap-2">
                           <Button
                             size="sm"
-                            onClick={() => savePlaylistInfo(playlist.id)}
+                            onClick={(e) => { e.stopPropagation(); savePlaylistInfo(playlist.id); }}
                             className="bg-green-600 hover:bg-green-700"
                           >
                             <Save className="w-3 h-3 mr-1" />
@@ -482,7 +486,7 @@ export function PlaylistManager() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={cancelEditingPlaylist}
+                            onClick={(e) => { e.stopPropagation(); cancelEditingPlaylist(); }}
                             className="border-white/20"
                           >
                             <X className="w-3 h-3 mr-1" />
@@ -506,23 +510,24 @@ export function PlaylistManager() {
                           variant="ghost"
                           size="sm"
                           className="text-gray-400 hover:text-white hover:bg-white/10"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           <MoreVertical className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent className="bg-gray-800 border-gray-600 text-white">
-                        <DropdownMenuItem onClick={() => showPlaylistDetail(playlist)}>
+                      <DropdownMenuContent className="bg-gray-800 border-gray-600 text-white z-50">
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); showPlaylistDetail(playlist); }}>
                           <ListMusic className="w-4 h-4 mr-2" />
                           상세 보기
                         </DropdownMenuItem>
                         {!playlist.isSystem && (
                           <>
-                            <DropdownMenuItem onClick={() => startEditingPlaylist(playlist)}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); startEditingPlaylist(playlist); }}>
                               <Edit className="w-4 h-4 mr-2" />
                               편집
                             </DropdownMenuItem>
                             <DropdownMenuItem 
-                              onClick={() => deletePlaylist(playlist.id)}
+                              onClick={(e) => { e.stopPropagation(); deletePlaylist(playlist.id); }}
                               className="text-red-400 focus:text-red-300"
                             >
                               <Trash2 className="w-4 h-4 mr-2" />
@@ -579,7 +584,7 @@ export function PlaylistManager() {
                   <Button
                     size="sm"
                     className="flex-1 bg-green-600 hover:bg-green-700"
-                    onClick={() => playPlaylist(playlist)}
+                    onClick={(e) => { e.stopPropagation(); playPlaylist(playlist); }}
                     disabled={playlist.items.length === 0}
                   >
                     <Play className="w-4 h-4 mr-1" />
@@ -614,7 +619,7 @@ export function PlaylistManager() {
                 <Button
                   size="sm"
                   className="bg-green-600 hover:bg-green-700"
-                  onClick={() => playPlaylist(selectedPlaylist)}
+                  onClick={(e) => { e.stopPropagation(); playPlaylist(selectedPlaylist); }}
                   disabled={selectedPlaylist.items.length === 0}
                 >
                   <Play className="w-4 h-4 mr-1" />
@@ -659,7 +664,7 @@ export function PlaylistManager() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => playSingleSong(item.file)}
+                            onClick={(e) => { e.stopPropagation(); playSingleSong(item.file); }}
                             className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
                           >
                             <Play className="w-4 h-4" />
@@ -668,7 +673,7 @@ export function PlaylistManager() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => removeFromPlaylist(selectedPlaylist.id, item.id)}
+                              onClick={(e) => { e.stopPropagation(); removeFromPlaylist(selectedPlaylist.id, item.id); }}
                               className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
                             >
                               <Trash2 className="w-4 h-4" />

@@ -230,7 +230,11 @@ export function SharesManager() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {shares.map((share) => (
-            <Card key={share.id} className="bg-white/5 border-white/10">
+            <Card
+              key={share.id}
+              className="bg-white/5 border-white/10 overflow-visible cursor-pointer"
+              onClick={() => setSelectedShareId(share.id)}
+            >
               <CardContent className="p-4">
                 <div className="flex justify-between items-start mb-3">
                   <h3 className="font-semibold text-lg truncate pr-2">
@@ -243,6 +247,7 @@ export function SharesManager() {
                         size="icon" 
                         variant="ghost" 
                         className="h-8 w-8"
+                        onClick={e => e.stopPropagation()}
                       >
                         {processingAction?.includes(share.id) ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -251,24 +256,24 @@ export function SharesManager() {
                         )}
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 text-white">
+                    <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 text-white z-50">
                       <DropdownMenuItem 
                         className="hover:bg-gray-700" 
-                        onClick={() => handleCopyLink(share.shortCode)}
+                        onClick={e => { e.stopPropagation(); handleCopyLink(share.shortCode); }}
                       >
                         <Copy className="h-4 w-4 mr-2" />
                         링크 복사
                       </DropdownMenuItem>
                       <DropdownMenuItem 
                         className="hover:bg-gray-700" 
-                        onClick={() => setSelectedShareId(share.id)}
+                        onClick={e => { e.stopPropagation(); setSelectedShareId(share.id); }}
                       >
                         <RefreshCw className="h-4 w-4 mr-2" />
                         설정 변경
                       </DropdownMenuItem>
                       <DropdownMenuItem 
                         className="hover:bg-gray-700 text-red-400"
-                        onClick={() => handleDeleteShare(share.id)}
+                        onClick={e => { e.stopPropagation(); handleDeleteShare(share.id); }}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
                         삭제
