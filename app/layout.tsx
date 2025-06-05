@@ -17,6 +17,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "귀요미 윤채의 음악방",
   description: "유튜브 및 멜론 차트 음악 다운로더",
+  icons: [
+    { rel: "icon", url: "/favicon.ico" }
+  ]
 };
 
 export default function RootLayout({
