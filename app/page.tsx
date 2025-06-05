@@ -95,7 +95,7 @@ export default function Home() {
   }, [])
 
   const handleLogout = async () => {
-    await signOut()
+    await signOut({ callbackUrl: "https://music.lunajj.com" })
     localStorage.removeItem("isLoggedIn")
   }
 

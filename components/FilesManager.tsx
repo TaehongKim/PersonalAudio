@@ -1214,6 +1214,17 @@ export const FilesManager = memo(function FilesManager() {
     )
   }
 
+  // 파일이 하나도 없을 때 안내 메시지
+  if (fileGroups.length === 0 && (viewMode === 'groups' || viewMode === 'list')) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[200px] py-12">
+        <div className="text-3xl mb-2 text-gray-400">😶</div>
+        <div className="text-lg text-gray-400">아직 업로드된 파일이 없습니다.</div>
+        <div className="text-sm text-gray-500 mt-2">유튜브/멜론 차트에서 음악을 다운로드하면 이곳에 파일이 표시됩니다.</div>
+      </div>
+    );
+  }
+
   // 파일/그룹 리스트 useMemo
   const groupedFiles = useMemo(() => groupFiles(files), [files]);
 
