@@ -7,6 +7,39 @@
 - (선택) PM2, Nginx
 - 도메인: https://music.lunajj.com
 
+## 1-1. 필수 바이너리(yt-dlp, ffmpeg) 설치
+### Ubuntu (권장)
+```bash
+# yt-dlp 설치
+sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+sudo chmod a+rx /usr/local/bin/yt-dlp
+
+# ffmpeg 설치
+sudo apt update
+sudo apt install -y ffmpeg
+
+# 설치 확인
+yt-dlp --version
+ffmpeg -version
+```
+
+### Windows (수동)
+- [yt-dlp.exe 다운로드](https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe) → `bin/` 폴더에 저장
+- [ffmpeg 다운로드](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip) → 압축 해제 후 `bin/` 폴더에 `ffmpeg.exe`, `ffprobe.exe` 복사
+- 환경변수 PATH에 bin 폴더 추가 권장
+
+### 자동 설치
+- 프로젝트 최초 실행 시(서버 코드) yt-dlp, ffmpeg가 없으면 자동 다운로드/설치 시도
+- 운영 환경에서는 수동 설치/업데이트 권장
+
+### 업데이트
+```bash
+# yt-dlp 최신화
+sudo yt-dlp -U
+# ffmpeg 최신화
+sudo apt upgrade -y ffmpeg
+```
+
 ## 2. 환경 변수 설정
 - `.env.example` 참고, 실제 값으로 `.env` 생성
 - DB, 포트, 외부 API 등 환경별 분리

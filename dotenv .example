@@ -1,13 +1,13 @@
 
-DATABASE_URL="mysql://thkim:426677@lunajj.com:3306/mp3?charset=utf8&collate=utf8_general_ci"
+DATABASE_URL="mysql://domain/DB?charset=utf8&collate=utf8_general_ci"
 
 # NextAuth 설정
-NEXTAUTH_SECRET="PXTAbmbqcqXwcaR2Y1QRReT5KfZcu9v9KHyQKXGMhRcpxzL95tdOikO81Jo="
+NEXTAUTH_SECRET="openssl rand -base64 32"
 NEXTAUTH_URL="http://localhost:3000"
-NEXT_PUBLIC_AUTH_MIDDLEWARE_SECRET="j3neFBcTvU7yarpiEL4HML/Sbfy5OGTutpVpwx8gEAQ="
+NEXT_PUBLIC_AUTH_MIDDLEWARE_SECRET="openssl rand -base64 32"
 # Kakao OAuth2.0 설정
-KAKAO_CLIENT_ID="cc7f2d6cc8d10f8af02e4dd469f7f928"
-KAKAO_CLIENT_SECRET="kpHjxLuXE63SwlcAW6LK5mSDfZbV43Aq"
+KAKAO_CLIENT_ID=""
+KAKAO_CLIENT_SECRET=""
 # 기타 설정
 NODE_ENV="production"
 "@ | Out-File -FilePath .env -Encoding utf8
