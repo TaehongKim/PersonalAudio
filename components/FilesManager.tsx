@@ -470,6 +470,7 @@ export const FilesManager = memo(function FilesManager() {
       await loadFiles()
       await loadStats()
       setSelectedItems(selectedItems.filter((id: string) => id !== fileId))
+      setMelonRankFilter({})
       } else {
         throw new Error(result.error || '파일 삭제 중 오류가 발생했습니다.')
       }
@@ -626,6 +627,7 @@ export const FilesManager = memo(function FilesManager() {
         await loadFiles()
         await loadStats()
         setSelectedItems([])
+        setMelonRankFilter({})
         
         const successCount = result.deletedCount
         const failedCount = result.requestedCount - result.deletedCount
@@ -700,6 +702,7 @@ export const FilesManager = memo(function FilesManager() {
           
         setShowShareDialog(false)
         setSelectedItems([])
+        setMelonRankFilter({})
         } else {
           throw new Error('공유 코드가 생성되지 않았습니다.')
         }
@@ -764,6 +767,8 @@ export const FilesManager = memo(function FilesManager() {
         alert(result.message)
         await checkFileSync()
         await loadFiles()
+        setSelectedItems([])
+        setMelonRankFilter({})
       } else {
         throw new Error('파일 정리 실패')
       }
@@ -1107,6 +1112,7 @@ export const FilesManager = memo(function FilesManager() {
         await loadFiles()
         await loadStats()
         setSelectedItems(selectedItems.filter((id: string) => !fileIds.includes(id)))
+        setMelonRankFilter({})
         
         const successCount = result.deletedCount
         const failedCount = result.requestedCount - result.deletedCount
