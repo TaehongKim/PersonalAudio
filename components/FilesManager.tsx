@@ -368,15 +368,19 @@ export const FilesManager = memo(function FilesManager() {
 
   const getGroupDisplayName = (group: FileGroup): string => {
     const baseName = getGroupTypeDisplayName(group.groupType);
-    const maxLength = isMobile ? 15 : 25; // 모바일에서는 더 짧게 축약
-    
     if (group.groupType === 'melon_chart') {
-      const rankSuffix = melonRankFilter[`${group.groupType}_${group.groupName}`] ? 
-        ` (TOP ${melonRankFilter[`${group.groupType}_${group.groupName}`]})` : ' (전체)';
-      const filesInRank = calculateFilesInRank(`${group.groupType}_${group.groupName}`, melonRankFilter[`${group.groupType}_${group.groupName}`]);
-      return `${baseName} - ${truncateMiddle(group.groupName, maxLength)}${rankSuffix} (${filesInRank} / ${group.totalFiles}곡)`;
+      // 날짜 추출 (예: TOP30_20240601)
+      const match = group.groupName.match(/^(TOP\d+)_?(\d{8})?$/);
+      if (match) {
+        const [, top, date] = match;
+        const dateStr = date ? ` (${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : '';
+        const countStr = `, ${group.files.length}곡`;
+        return `${baseName} - ${top}${dateStr}${countStr})`;
+      }
+      return `${baseName} - ${group.groupName} (${group.files.length}곡)`;
     }
-    return `${baseName} - ${truncateMiddle(group.groupName, maxLength)} (${group.files.length} / ${group.totalFiles}곡)`;
+    // 기존 로직
+    return `${baseName} - ${truncateMiddle(group.groupName, isMobile ? 15 : 25)}`;
   };
   
   const toggleItemSelection = (id: string, e: React.MouseEvent) => {
@@ -1205,7 +1209,7 @@ export const FilesManager = memo(function FilesManager() {
   if (loading) return <FilesSkeleton />;
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6 p-4 sm:p-6 md:p-8 lg:p-10 xl:p-12 max-w-full w-full mx-auto">
         <Breadcrumb className="mb-4">
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -1222,7 +1226,7 @@ export const FilesManager = memo(function FilesManager() {
           </div>
         )}
 
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+        <div className="flex flex-col gap-4 md:flex-row md:gap-6 md:items-center md:justify-between mb-6 w-full">
           <div className="flex items-center">
             <h1 className="text-3xl font-bold">내 파일</h1>
             <Button
@@ -1279,161 +1283,159 @@ export const FilesManager = memo(function FilesManager() {
             const allGroupSelected = selectedInGroup === group.files.length && group.files.length > 0
             
             return (
-              <Card key={groupKey} className="bg-white/5 border-white/10">
-                <CardContent className="p-0">
-                  <div className="p-4 border-b border-white/10">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                      <div className="flex items-center space-x-3">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="p-1 h-6 w-6"
-                          onClick={() => toggleGroupExpansion(groupKey)}
-                        >
-                          {currentGroupIsExpanded ? (
-                            <ChevronDown className="h-4 w-4" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4" />
-                          )}
-                        </Button>
+              <Card key={groupKey} className="bg-white/5 border-white/10 w-full max-w-full overflow-x-auto sm:rounded-xl sm:shadow-md transition-all">
+                <CardContent className="p-0 w-full max-w-full">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between w-full">
+                    <div className="flex items-center space-x-3">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="p-1 h-6 w-6"
+                        onClick={() => toggleGroupExpansion(groupKey)}
+                      >
+                        {currentGroupIsExpanded ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={allGroupSelected}
+                          onChange={() => toggleGroupSelection(group.files)}
+                          className="h-4 w-4 rounded border-gray-500 bg-transparent"
+                        />
+                        <FolderOpen className="h-5 w-5 text-blue-400" />
+                      </div>
+                      <div className="flex-1">
                         <div className="flex items-center space-x-2">
-                          <input
-                            type="checkbox"
-                            checked={allGroupSelected}
-                            onChange={() => toggleGroupSelection(group.files)}
-                            className="h-4 w-4 rounded border-gray-500 bg-transparent"
-                          />
-                          <FolderOpen className="h-5 w-5 text-blue-400" />
+                          <h3 className="font-semibold text-lg">{getGroupDisplayName(group)}</h3>
+                          <Badge variant="secondary" className="bg-blue-600/20 text-blue-300 text-xs">
+                            {group.totalFiles}개 파일
+                          </Badge>
                         </div>
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2">
-                            <h3 className="font-semibold text-lg">{getGroupDisplayName(group)}</h3>
-                            <Badge variant="secondary" className="bg-blue-600/20 text-blue-300 text-xs">
-                              {group.totalFiles}개 파일
-                            </Badge>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            {editingGroup === groupKey ? (
-                              <div className="flex items-center space-x-1">
-                                <Input
-                                  value={editingGroupName}
-                                  onChange={(e) => setEditingGroupName(e.target.value)}
-                                  className="h-6 text-sm bg-white/10 border-white/20 text-white"
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      saveGroupName(groupKey, editingGroupName)
-                                    } else if (e.key === 'Escape') {
-                                      cancelEditingGroup()
-                                    }
-                                  }}
-                                  autoFocus
-                                />
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0"
-                                  onClick={() => saveGroupName(groupKey, editingGroupName)}
-                                  disabled={processingAction === `rename-group-${groupKey}`}
-                                >
-                                  <Check className="h-3 w-3 text-green-400" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0"
-                                  onClick={cancelEditingGroup}
-                                >
-                                  <X className="h-3 w-3 text-red-400" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center space-x-1">
-                                <span className="text-sm text-gray-400" title={group.groupName}>
-                                  {truncateMiddle(group.groupName, isMobile ? 12 : 20)}
-                                </span>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-5 w-5 p-0 opacity-50 hover:opacity-100"
-                                  onClick={() => startEditingGroup(groupKey, group.groupName)}
-                                >
-                                  <Edit3 className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            )}
-                            {(() => {
-                              const dstatus = getGroupDownloadStatus(group)
-                              if (dstatus.status === 'processing') {
-                                return (
-                                  <span className="flex items-center text-xs text-blue-500">
-                                    <Progress value={dstatus.progress} className="w-16 h-2 mr-2" />
-                                    진행중 {dstatus.progress}%
+                        <div className="flex items-center space-x-2">
+                          {editingGroup === groupKey ? (
+                            <div className="flex items-center space-x-1">
+                              <Input
+                                value={editingGroupName}
+                                onChange={(e) => setEditingGroupName(e.target.value)}
+                                className="h-6 text-sm bg-white/10 border-white/20 text-white"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    saveGroupName(groupKey, editingGroupName)
+                                  } else if (e.key === 'Escape') {
+                                    cancelEditingGroup()
+                                  }
+                                }}
+                                autoFocus
+                              />
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0"
+                                onClick={() => saveGroupName(groupKey, editingGroupName)}
+                                disabled={processingAction === `rename-group-${groupKey}`}
+                              >
+                                <Check className="h-3 w-3 text-green-400" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0"
+                                onClick={cancelEditingGroup}
+                              >
+                                <X className="h-3 w-3 text-red-400" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-1">
+                              <span className="text-sm text-gray-400" title={group.groupName}>
+                                {truncateMiddle(group.groupName, isMobile ? 12 : 20)}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-5 w-5 p-0 opacity-50 hover:opacity-100"
+                                onClick={() => startEditingGroup(groupKey, group.groupName)}
+                              >
+                                <Edit3 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
+                          {(() => {
+                            const dstatus = getGroupDownloadStatus(group)
+                            if (dstatus.status === 'processing') {
+                              return (
+                                <span className="flex items-center text-xs text-blue-500">
+                                  <Progress value={dstatus.progress} className="w-16 h-2 mr-2" />
+                                  진행중 {dstatus.progress}%
                             </span>
-                                )
-                              }
-                              if (dstatus.status === 'completed') {
-                                return <span className="text-xs text-green-500 ml-2">다운로드 완료</span>
-                              }
-                              return null
-                            })()}
-                          </div>
+                              )
+                            }
+                            if (dstatus.status === 'completed') {
+                              return <span className="text-xs text-green-500 ml-2">다운로드 완료</span>
+                            }
+                            return null
+                          })()}
                         </div>
                       </div>
                     </div>
-                    <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 mt-2 sm:mt-0">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-green-400 hover:bg-green-900/20"
-                        onClick={() => playGroupFiles(group.files)}
-                        disabled={group.files.filter(f => f.fileType.toLowerCase().includes('mp3')).length === 0}
-                      >
-                        <Play className="h-4 w-4 mr-1" />
-                        재생
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-blue-400 hover:bg-blue-900/20"
-                        onClick={() => handleGroupDownload(group.files, 'zip')}
-                        disabled={processingAction === 'group-download'}
-                      >
-                        {(processingAction === 'group-download' && downloadMode === 'zip') ? (
-                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                        ) : (
-                          <Download className="h-4 w-4 mr-1" />
-                        )}
-                        압축
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-indigo-400 hover:bg-indigo-900/20"
-                        onClick={() => handleGroupDownload(group.files, 'sequential')}
-                        disabled={processingAction === 'sequential-download'}
-                      >
-                        {processingAction === 'sequential-download' ? (
-                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                        ) : (
-                          <Download className="h-4 w-4 mr-1" />
-                        )}
-                        순차
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-red-400 hover:bg-red-900/20"
-                        onClick={() => handleGroupDelete(group.files)}
-                        disabled={processingAction === 'group-delete'}
-                      >
-                        {processingAction === 'group-delete' ? (
-                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4 mr-1" />
-                        )}
-                        삭제
-                      </Button>
-                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 mt-2 sm:mt-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-green-400 hover:bg-green-900/20"
+                      onClick={() => playGroupFiles(group.files)}
+                      disabled={group.files.filter(f => f.fileType.toLowerCase().includes('mp3')).length === 0}
+                    >
+                      <Play className="h-4 w-4 mr-1" />
+                      재생
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-blue-400 hover:bg-blue-900/20"
+                      onClick={() => handleGroupDownload(group.files, 'zip')}
+                      disabled={processingAction === 'group-download'}
+                    >
+                      {(processingAction === 'group-download' && downloadMode === 'zip') ? (
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4 mr-1" />
+                      )}
+                      압축
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-indigo-400 hover:bg-indigo-900/20"
+                      onClick={() => handleGroupDownload(group.files, 'sequential')}
+                      disabled={processingAction === 'sequential-download'}
+                    >
+                      {processingAction === 'sequential-download' ? (
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4 mr-1" />
+                      )}
+                      순차
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-red-400 hover:bg-red-900/20"
+                      onClick={() => handleGroupDelete(group.files)}
+                      disabled={processingAction === 'group-delete'}
+                    >
+                      {processingAction === 'group-delete' ? (
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4 mr-1" />
+                      )}
+                      삭제
+                    </Button>
                   </div>
                   
                   {currentGroupIsExpanded && (

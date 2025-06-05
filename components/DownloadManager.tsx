@@ -94,7 +94,7 @@ type FileMinimal = {
   createdAt: string;
 };
 
-export const DownloadManager = memo(function DownloadManager() {
+export const DownloadManager = memo(function DownloadManager({ setActiveTab }: { setActiveTab?: (tab: string) => void }) {
   const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -578,7 +578,7 @@ export const DownloadManager = memo(function DownloadManager() {
   }
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="flex flex-1 flex-col overflow-x-auto pt-10 pb-24 sm:pt-14 sm:pb-36 w-full max-w-full">
       {/* 헤더 섹션 */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -707,7 +707,7 @@ export const DownloadManager = memo(function DownloadManager() {
 
         {/* 일괄 작업 버튼 */}
         {downloadTasks.length > 0 && (
-          <div className="flex flex-wrap gap-2 text-sm">
+          <div className="flex flex-wrap gap-2 sm:gap-3 justify-center sm:justify-start text-sm w-full">
             <Button 
               onClick={toggleSelectAll} 
               variant="outline" 
@@ -784,10 +784,10 @@ export const DownloadManager = memo(function DownloadManager() {
               유튜브나 멜론 차트에서 다운로드를 시작해보세요
             </p>
             <div className="flex gap-2 justify-center">
-              <Button variant="outline" onClick={() => {}}>
+              <Button variant="outline" onClick={() => setActiveTab ? setActiveTab('youtube') : undefined}>
                 유튜브 다운로드
               </Button>
-              <Button variant="outline" onClick={() => {}}>
+              <Button variant="outline" onClick={() => setActiveTab ? setActiveTab('melon') : undefined}>
                 멜론 차트
               </Button>
             </div>

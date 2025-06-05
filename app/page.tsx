@@ -199,7 +199,7 @@ export default function Home() {
               {activeTab === "files" && <Suspense fallback={<PageSkeleton />}><FilesManagerLazy /></Suspense>}
               {activeTab === "playlist" && <Suspense fallback={<PageSkeleton />}><PlaylistManagerLazy /></Suspense>}
               {activeTab === "recent" && <Suspense fallback={<PageSkeleton />}><RecentPlayedLazy /></Suspense>}
-              {activeTab === "downloads" && <Suspense fallback={<PageSkeleton />}><DownloadManagerLazy /></Suspense>}
+              {activeTab === "downloads" && <Suspense fallback={<PageSkeleton />}><DownloadManagerLazy setActiveTab={setActiveTab} /></Suspense>}
               {activeTab === "shares" && <Suspense fallback={<PageSkeleton />}><SharesManagerLazy /></Suspense>}
               {activeTab === "settings" && (
                 <Suspense fallback={<PageSkeleton />}>

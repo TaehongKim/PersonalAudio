@@ -360,6 +360,10 @@ export async function POST(request: NextRequest) {
     }
 
     const results = []
+    // 오늘 날짜 구하기
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const groupName = `TOP${songs.length}_${dateStr}`;
     
     for (const song of songs) {
       try {
@@ -372,7 +376,8 @@ export async function POST(request: NextRequest) {
           chartSize: songs.length,
           coverUrl: song.coverUrl,
           artist: song.artist,
-          title: song.title
+          title: song.title,
+          groupName // 날짜 포함 그룹명 전달
         })
 
         results.push({

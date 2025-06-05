@@ -223,7 +223,9 @@ function createGroupFolder(type: FileGroupType, groupName: string): string {
     case FileGroupType.YOUTUBE_PLAYLIST:
       return path.join(basePath, 'playlists', sanitizedName);
     case FileGroupType.MELON_CHART:
-      return path.join(basePath, 'melon', `${getDateFolderName()}_${sanitizedName}`);
+      // groupName에 날짜가 이미 포함되어 있지 않으면 붙여줌
+      const hasDate = /_\d{8}$/.test(sanitizedName);
+      return path.join(basePath, 'melon', hasDate ? sanitizedName : `${sanitizedName}_${getDateFolderName()}`);
     default:
       return path.join(basePath, 'others');
   }
