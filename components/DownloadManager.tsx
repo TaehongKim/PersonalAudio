@@ -151,43 +151,38 @@ export const DownloadManager = memo(function DownloadManager() {
       
       // 큐 데이터를 DownloadTask 형태로 변환
       const tasks: DownloadTask[] = (queueData || []).map((item: DownloadQueue) => {
-        // options 파싱 (error 필드에 JSON으로 저장됨)
         let options: Record<string, unknown> = {};
         let errorMessage = undefined;
-        
         try {
           if (item.error && item.error.startsWith('{')) {
             options = JSON.parse(item.error);
           } else if (item.error) {
-            // JSON이 아닌 경우 오류 메시지로 처리
             errorMessage = item.error;
           }
         } catch {
-          // JSON 파싱 실패 시 오류 메시지로 처리
           errorMessage = item.error;
         }
-
+        const status = (item.status || '').toLowerCase() as DownloadStatus;
         return {
           jobId: item.id,
           title: typeof options.title === 'string' ? options.title : item.url,
           artist: typeof options.artist === 'string' ? options.artist : '알 수 없음',
           progress: item.progress,
-          status: item.status as DownloadStatus,
-          error: item.status === DownloadStatus.FAILED ? errorMessage : undefined,
+          status,
+          error: status === 'failed' ? errorMessage : undefined,
           coverUrl: typeof options.coverUrl === 'string' ? options.coverUrl : undefined,
           createdAt: item.createdAt,
           type: item.url.includes('melon') || options.isMelonChart ? 'melon' : 'youtube',
           data: {
-            url: item.url, // 원본 URL
+            url: item.url,
             type: item.type,
             options: options,
             ...options
           }
         }
       })
-      
       setDownloadTasks(tasks)
-      setDownloadCount(tasks.length) // 다운로드 개수 업데이트
+      setDownloadCount(tasks.length)
     } catch (err) {
       console.error('Failed to load queue:', err)
       setError(err instanceof Error ? err.message : '큐를 불러오는데 실패했습니다.')
@@ -519,13 +514,18 @@ export const DownloadManager = memo(function DownloadManager() {
     setSelectedTasks([]);
   };
 
+  // filterStatus를 항상 소문자로 유지
+  const handleFilterStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setFilterStatus(e.target.value.toLowerCase())
+  }
+
   // 메모화된 필터링된 작업 목록
   const filteredTasks = useMemo(() => {
     return downloadTasks.filter(task => {
       const matchesStatus = filterStatus === 'all' || task.status === filterStatus
       const matchesSearch = searchQuery === '' || 
-        task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.artist.toLowerCase().includes(searchQuery.toLowerCase())
+        (task.title?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+        (task.artist?.toLowerCase() || '').includes(searchQuery.toLowerCase())
       return matchesStatus && matchesSearch
     })
   }, [downloadTasks, filterStatus, searchQuery])
@@ -693,7 +693,7 @@ export const DownloadManager = memo(function DownloadManager() {
           <div className="flex justify-start">
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
+              onChange={handleFilterStatusChange}
               className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm sm:text-base min-w-0 max-w-full"
             >
               <option value="all">모든 상태 ({statusStats.all})</option>
