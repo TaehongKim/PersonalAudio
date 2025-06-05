@@ -368,17 +368,26 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
     )
   }
 
-  // 선택된 작업 삭제
+  // 1. 다운로드 완전 삭제 함수 추가
+  const deleteDownload = useCallback(async (jobId: string) => {
+    // 1. 진행중이면 먼저 취소
+    await cancelDownload(jobId);
+    // 2. DB에서 완전히 삭제
+    await fetch(`/api/youtube/delete/${jobId}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+  }, [cancelDownload]);
+
+  // 2. 선택된 작업 삭제 개선
   const deleteSelectedTasks = async () => {
     for (const jobId of selectedTasks) {
-      const task = downloadTasks.find(t => t.jobId === jobId)
-      if (task && [DownloadStatus.PROCESSING, DownloadStatus.PENDING].includes(task.status)) {
-        await pauseDownload(jobId)
-      }
-      await cancelDownload(jobId)
+      await deleteDownload(jobId);
     }
-    setSelectedTasks([])
-  }
+    setSelectedTasks([]);
+    // 삭제 후 목록 새로고침
+    loadQueue();
+  };
 
   // 선택된 작업 중지
   const pauseSelectedTasks = async () => {
@@ -1077,7 +1086,7 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
                           <Button
                             onClick={(e) => {
                               e.stopPropagation()
-                              cancelDownload(task.jobId)
+                              deleteDownload(task.jobId)
                             }}
                             variant="ghost"
                             size="sm"
