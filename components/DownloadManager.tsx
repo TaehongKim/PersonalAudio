@@ -379,13 +379,29 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
     });
   }, [cancelDownload]);
 
-  // 2. 선택된 작업 삭제 개선
-  const deleteSelectedTasks = async () => {
-    for (const jobId of selectedTasks) {
+  // 실패한 작업들 삭제 (delete-batch 제거, 반복 호출로 통일)
+  const deleteFailedTasks = async (jobIds: string[]) => {
+    for (const jobId of jobIds) {
       await deleteDownload(jobId);
     }
+    setDownloadTasks(prev => prev.filter(task => !jobIds.includes(task.jobId)));
+    setSelectedTasks(prev => prev.filter(id => !jobIds.includes(id)));
+  };
+
+  // 모든 실패 작업 삭제
+  const clearAllFailedTasks = async () => {
+    const failedJobIds = downloadTasks.filter(task => task.status === DownloadStatus.FAILED).map(task => task.jobId);
+    await deleteFailedTasks(failedJobIds);
+    loadQueue();
+  };
+
+  // 선택된 실패 작업들 삭제
+  const deleteSelectedFailedTasks = async () => {
+    const selectedFailedJobIds = downloadTasks
+      .filter(task => selectedTasks.includes(task.jobId) && task.status === DownloadStatus.FAILED)
+      .map(task => task.jobId);
+    await deleteFailedTasks(selectedFailedJobIds);
     setSelectedTasks([]);
-    // 삭제 후 목록 새로고침
     loadQueue();
   };
 
@@ -477,52 +493,6 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
     }
   };
 
-  // 실패한 작업들 삭제
-  const deleteFailedTasks = async (jobIds: string[]) => {
-    try {
-      // 일괄 삭제 API 호출
-      const response = await fetch('/api/youtube/delete-batch', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ ids: jobIds })
-      });
-
-      if (response.ok) {
-        // 성공 시 프론트엔드 상태에서 제거
-        setDownloadTasks(prev => prev.filter(task => !jobIds.includes(task.jobId)));
-        
-        // 선택된 작업 목록에서도 제거
-        setSelectedTasks(prev => prev.filter(id => !jobIds.includes(id)));
-        
-        console.log(`${jobIds.length}개의 실패 작업이 삭제되었습니다.`);
-      } else {
-        const error = await response.json();
-        console.error('삭제 실패:', error.message);
-      }
-    } catch (error) {
-      console.error('삭제 요청 실패:', error);
-    }
-  };
-
-  // 모든 실패 작업 삭제
-  const clearAllFailedTasks = async () => {
-    const failedJobIds = downloadTasks.filter(task => task.status === DownloadStatus.FAILED).map(task => task.jobId);
-    await deleteFailedTasks(failedJobIds);
-  };
-
-  // 선택된 실패 작업들 삭제
-  const deleteSelectedFailedTasks = async () => {
-    const selectedFailedJobIds = downloadTasks
-      .filter(task => selectedTasks.includes(task.jobId) && task.status === DownloadStatus.FAILED)
-      .map(task => task.jobId);
-    
-    await deleteFailedTasks(selectedFailedJobIds);
-    setSelectedTasks([]);
-  };
-
   // filterStatus를 항상 소문자로 유지
   const handleFilterStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setFilterStatus(e.target.value.toLowerCase())
@@ -549,6 +519,16 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
       failed: downloadTasks.filter(t => t.status === DownloadStatus.FAILED).length,
     }
   }, [downloadTasks])
+
+  // 2. 선택된 작업 삭제 개선 (기존 로직 유지)
+  const deleteSelectedTasks = async () => {
+    for (const jobId of selectedTasks) {
+      await deleteDownload(jobId);
+    }
+    setSelectedTasks([]);
+    // 삭제 후 목록 새로고침
+    loadQueue();
+  };
 
   if (!isLoggedIn) {
     return (
@@ -1174,7 +1154,7 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
                               }}
                               size="sm"
                               variant="outline"
-                              className="text-red-600 border-red-300 hover:bg-red-50"
+                              className="text-red-600 border-red-300 hover:bg-red-50 text-xs"
                             >
                               <Trash2 className="w-3 h-3 mr-1" />
                               삭제
