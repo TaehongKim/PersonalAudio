@@ -1231,59 +1231,62 @@ export const FilesManager = memo(function FilesManager() {
   // 렌더링 부분에서 로딩 중이면 Skeleton UI 표시
   if (loading) return <FilesSkeleton />;
 
+  // 반응형 하단 패딩 클래스 결정
+  const bottomPadding = isMobile ? 'pb-36' : 'pb-20';
+
   return (
-    <div className="space-y-6 p-4 sm:p-6 md:p-8 lg:p-10 xl:p-12 max-w-full w-full mx-auto">
-        <Breadcrumb className="mb-4">
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink className="flex items-center text-gray-300">
-                <FolderOpen className="h-4 w-4 mr-1" />내 파일
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
+    <div className={`flex flex-1 flex-col overflow-hidden w-full max-w-full space-y-6 p-4 sm:p-6 md:p-8 lg:p-10 xl:p-12 mx-auto ${bottomPadding}`}>
+      <Breadcrumb className="mb-4">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink className="flex items-center text-gray-300">
+              <FolderOpen className="h-4 w-4 mr-1" />내 파일
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
-        {error && (
-          <div className="mb-4 p-4 bg-red-900/50 border border-red-600 rounded-lg">
-            <p className="text-red-200">{error}</p>
-          </div>
-        )}
+      {error && (
+        <div className="mb-4 p-4 bg-red-900/50 border border-red-600 rounded-lg">
+          <p className="text-red-200">{error}</p>
+        </div>
+      )}
 
-        <div className="flex flex-col gap-4 md:flex-row md:gap-6 md:items-center md:justify-between mb-6 w-full">
-          <div className="flex items-center">
-            <h1 className="text-3xl font-bold">내 파일</h1>
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-4 border-white/20 hover:bg-white/10"
-            onClick={loadFiles}
-              disabled={loading}
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-2 border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10"
-            onClick={() => setShowFileSyncDialog(!showFileSyncDialog)}
-              disabled={loading}
-            >
-              <Database className="h-4 w-4" />
+      <div className="flex flex-col gap-4 md:flex-row md:gap-6 md:items-center md:justify-between mb-6 w-full">
+        <div className="flex items-center">
+          <h1 className="text-3xl font-bold">내 파일</h1>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-4 border-white/20 hover:bg-white/10"
+          onClick={loadFiles}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-2 border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10"
+          onClick={() => setShowFileSyncDialog(!showFileSyncDialog)}
+            disabled={loading}
+          >
+            <Database className="h-4 w-4" />
+          </Button>
+        </div>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="icon" onClick={toggleAllGroups} title={allGroupsExpanded ? "모든 그룹 접기" : "모든 그룹 펼치기"}>
+          {allGroupsExpanded ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />}
             </Button>
           </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={toggleAllGroups} title={allGroupsExpanded ? "모든 그룹 접기" : "모든 그룹 펼치기"}>
-            {allGroupsExpanded ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />}
-              </Button>
-            </div>
-                      </div>
+                    </div>
 
       {renderSelectedFilesActions()}
 
       {loading && (
         <div className="flex justify-center items-center min-h-[200px]">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                      </div>
+                    </div>
       )}
       {error && (
         <Card className="bg-destructive/10 border-destructive text-destructive-foreground">
