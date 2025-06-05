@@ -1217,7 +1217,7 @@ export const FilesManager = memo(function FilesManager() {
   // 파일이 하나도 없을 때 안내 메시지
   if (fileGroups.length === 0 && (viewMode === 'groups' || viewMode === 'list')) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[200px] py-12">
+      <div className="flex flex-col items-center justify-center min-h-[40vh] sm:min-h-[300px] md:min-h-[400px] py-8 sm:py-16 px-4 text-center w-full">
         <div className="text-3xl mb-2 text-gray-400">😶</div>
         <div className="text-lg text-gray-400">아직 업로드된 파일이 없습니다.</div>
         <div className="text-sm text-gray-500 mt-2">유튜브/멜론 차트에서 음악을 다운로드하면 이곳에 파일이 표시됩니다.</div>
