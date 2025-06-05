@@ -1214,6 +1214,9 @@ export const FilesManager = memo(function FilesManager() {
     )
   }
 
+  // 기존 위치에서 아래 훅을 최상단에 위치시킴
+  const groupedFiles = useMemo(() => groupFiles(files), [files]);
+
   // 파일이 하나도 없을 때 안내 메시지
   if (fileGroups.length === 0 && (viewMode === 'groups' || viewMode === 'list')) {
     return (
@@ -1224,9 +1227,6 @@ export const FilesManager = memo(function FilesManager() {
       </div>
     );
   }
-
-  // 파일/그룹 리스트 useMemo
-  const groupedFiles = useMemo(() => groupFiles(files), [files]);
 
   // 렌더링 부분에서 로딩 중이면 Skeleton UI 표시
   if (loading) return <FilesSkeleton />;

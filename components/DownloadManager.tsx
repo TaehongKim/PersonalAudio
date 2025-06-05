@@ -163,10 +163,13 @@ export const DownloadManager = memo(function DownloadManager({ setActiveTab }: {
           errorMessage = item.error;
         }
         const status = (item.status || '').toLowerCase() as DownloadStatus;
+        // fileId/file 정보가 있으면 file.title/file.artist를 우선 사용
+        const fileTitle = item.file?.title || (typeof options.title === 'string' ? options.title : undefined) || item.url;
+        const fileArtist = item.file?.artist || (typeof options.artist === 'string' ? options.artist : undefined) || '알 수 없음';
         return {
           jobId: item.id,
-          title: typeof options.title === 'string' ? options.title : item.url,
-          artist: typeof options.artist === 'string' ? options.artist : '알 수 없음',
+          title: fileTitle,
+          artist: fileArtist,
           progress: item.progress,
           status,
           error: status === 'failed' ? errorMessage : undefined,

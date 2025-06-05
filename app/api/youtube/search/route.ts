@@ -54,17 +54,20 @@ async function searchYoutube(query: string, maxResults = 10): Promise<SearchResu
         for (const line of lines) {
           try {
             const data = JSON.parse(line)
-            
-            // 플레이리스트 항목은 제외하고 실제 비디오만
-            if (data._type === 'video' || (!data._type && data.id)) {
+            // 실제 비디오만: _type이 없거나 'video'이거나, _type이 'url'이면서 url이 영상/shorts 링크인 경우만
+            const isVideoUrl = (typeof data.url === 'string') && (
+              data.url.startsWith('https://www.youtube.com/watch?v=') ||
+              data.url.startsWith('https://www.youtube.com/shorts/')
+            );
+            if ((!data._type && data.id) || data._type === 'video' || (data._type === 'url' && isVideoUrl)) {
               results.push({
                 id: data.id,
                 title: data.title || '제목 없음',
                 uploader: data.uploader || data.channel || '알 수 없음',
                 duration: formatDuration(data.duration),
                 view_count: data.view_count || 0,
-                url: `https://www.youtube.com/watch?v=${data.id}`,
-                thumbnail: data.thumbnail || data.thumbnails?.[0]?.url || '',
+                url: data.url,
+                thumbnail: data.thumbnail || (data.thumbnails?.[0]?.url ?? ''),
                 description: data.description || ''
               })
             }

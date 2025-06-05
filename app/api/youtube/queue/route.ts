@@ -44,10 +44,34 @@ export async function GET() {
       ...recentFailedDownloads,
       ...recentCompletedDownloads
     ];
-    
+
+    // fileId가 있으면 file 정보 조인
+    const fileIds = downloadQueue.map((q: any) => q.fileId).filter(Boolean);
+    let fileMap: Record<string, any> = {};
+    if (fileIds.length > 0) {
+      const files = await prisma.file.findMany({
+        where: { id: { in: fileIds } },
+        select: {
+          id: true,
+          title: true,
+          artist: true,
+          fileType: true,
+          fileSize: true,
+          duration: true,
+          thumbnailPath: true,
+          createdAt: true,
+        }
+      });
+      fileMap = Object.fromEntries(files.map(f => [f.id, f]));
+    }
+    const downloadQueueWithFile = downloadQueue.map((q: any) => ({
+      ...q,
+      file: q.fileId ? fileMap[q.fileId] || null : null
+    }));
+
     return NextResponse.json({
       success: true,
-      data: downloadQueue
+      data: downloadQueueWithFile
     });
   } catch (error) {
     console.error('다운로드 큐 조회 오류:', error);
