@@ -81,16 +81,16 @@ export function Sidebar({ activeTab, setActiveTab, isOpen = true, onClose }: Sid
               </Button>
 
               <Button
-                onClick={() => handleTabClick("youtube")}
-                variant={activeTab === "youtube" ? "secondary" : "ghost"}
+                onClick={() => handleTabClick("player")}
+                variant={activeTab === "player" ? "secondary" : "ghost"}
                 className={`w-full justify-start gap-3 ${
-                  activeTab === "youtube"
+                  activeTab === "player"
                     ? isDark ? "bg-white/10 text-white" : "bg-gray-100 text-black"
                     : isDark ? "text-gray-300 hover:text-white hover:bg-white/5" : "text-gray-700 hover:text-black hover:bg-gray-50"
                 }`}
               >
                 <Music size={20} />
-                <span>유튜브</span>
+                <span>음악 플레이어</span>
               </Button>
 
               <Button
@@ -107,6 +107,32 @@ export function Sidebar({ activeTab, setActiveTab, isOpen = true, onClose }: Sid
               </Button>
 
               <Button
+                onClick={() => handleTabClick("youtube")}
+                variant={activeTab === "youtube" ? "secondary" : "ghost"}
+                className={`w-full justify-start gap-3 ${
+                  activeTab === "youtube"
+                    ? isDark ? "bg-white/10 text-white" : "bg-gray-100 text-black"
+                    : isDark ? "text-gray-300 hover:text-white hover:bg-white/5" : "text-gray-700 hover:text-black hover:bg-gray-50"
+                }`}
+              >
+                <Music size={20} />
+                <span>유튜브</span>
+              </Button>
+
+              <Button
+                onClick={() => handleTabClick("shares")}
+                variant={activeTab === "shares" ? "secondary" : "ghost"}
+                className={`w-full justify-start gap-3 ${
+                  activeTab === "shares"
+                    ? isDark ? "bg-white/10 text-white" : "bg-gray-100 text-black"
+                    : isDark ? "text-gray-300 hover:text-white hover:bg-white/5" : "text-gray-700 hover:text-black hover:bg-gray-50"
+                }`}
+              >
+                <Share2 size={20} />
+                <span>공유 관리</span>
+              </Button>
+
+              <Button
                 onClick={() => handleTabClick("files")}
                 variant={activeTab === "files" ? "secondary" : "ghost"}
                 className={`w-full justify-start gap-3 ${
@@ -117,32 +143,6 @@ export function Sidebar({ activeTab, setActiveTab, isOpen = true, onClose }: Sid
               >
                 <FileMusic size={20} />
                 <span>내 파일</span>
-              </Button>
-
-              <Button
-                onClick={() => handleTabClick("playlist")}
-                variant={activeTab === "playlist" ? "secondary" : "ghost"}
-                className={`w-full justify-start gap-3 ${
-                  activeTab === "playlist"
-                    ? isDark ? "bg-white/10 text-white" : "bg-gray-100 text-black"
-                    : isDark ? "text-gray-300 hover:text-white hover:bg-white/5" : "text-gray-700 hover:text-black hover:bg-gray-50"
-                }`}
-              >
-                <ListMusic size={20} />
-                <span>플레이리스트</span>
-              </Button>
-
-              <Button
-                onClick={() => handleTabClick("recent")}
-                variant={activeTab === "recent" ? "secondary" : "ghost"}
-                className={`w-full justify-start gap-3 ${
-                  activeTab === "recent"
-                    ? isDark ? "bg-white/10 text-white" : "bg-gray-100 text-black"
-                    : isDark ? "text-gray-300 hover:text-white hover:bg-white/5" : "text-gray-700 hover:text-black hover:bg-gray-50"
-                }`}
-              >
-                <Clock size={20} />
-                <span>최근 재생</span>
               </Button>
 
               <Button
@@ -166,16 +166,16 @@ export function Sidebar({ activeTab, setActiveTab, isOpen = true, onClose }: Sid
               </Button>
 
               <Button
-                onClick={() => handleTabClick("shares")}
-                variant={activeTab === "shares" ? "secondary" : "ghost"}
+                onClick={() => handleTabClick("recent")}
+                variant={activeTab === "recent" ? "secondary" : "ghost"}
                 className={`w-full justify-start gap-3 ${
-                  activeTab === "shares"
+                  activeTab === "recent"
                     ? isDark ? "bg-white/10 text-white" : "bg-gray-100 text-black"
                     : isDark ? "text-gray-300 hover:text-white hover:bg-white/5" : "text-gray-700 hover:text-black hover:bg-gray-50"
                 }`}
               >
-                <Share2 size={20} />
-                <span>공유 관리</span>
+                <Clock size={20} />
+                <span>최근 재생</span>
               </Button>
 
               <Button

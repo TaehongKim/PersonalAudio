@@ -2,8 +2,8 @@
 
 import React from 'react'
 import { useMediaQuery } from "@/hooks/use-mobile"
-import { PlayerControls } from "./PlayerControls"
 import { MobileNavigation } from "./MobileNavigation"
+import { PlayerControls } from "./PlayerControls"
 
 interface GlobalLayoutProps {
   children: React.ReactNode

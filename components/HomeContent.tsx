@@ -261,6 +261,12 @@ export function HomeContent({ setActiveTab }: { setActiveTab: (tab: string) => v
   // 빠른 접근 아이템
   const quickAccessItems: QuickAccessItem[] = [
     {
+      title: "음악 플레이어",
+      icon: PlayCircle,
+      color: "bg-pink-600",
+      onClick: () => setActiveTab("player"),
+    },
+    {
       title: "유튜브 다운로드",
       icon: Youtube,
       color: "bg-red-600",

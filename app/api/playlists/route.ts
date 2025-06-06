@@ -11,6 +11,7 @@ export async function GET() {
     }
 
     const playlists = await prisma.playlist.findMany({
+      where: { userId: session.user.id },
       include: {
         items: {
           include: {
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
 
       const playlist = await prisma.playlist.create({
         data: {
+          userId: session.user.id,
           name,
           description: description || `${groupName} 그룹에서 생성`,
           items: {
@@ -97,6 +99,7 @@ export async function POST(request: NextRequest) {
     // 빈 플레이리스트 생성
     const playlist = await prisma.playlist.create({
       data: {
+        userId: session.user.id,
         name,
         description
       },

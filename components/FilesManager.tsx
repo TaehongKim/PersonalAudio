@@ -1409,11 +1409,11 @@ export const FilesManager = memo(function FilesManager() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 mt-2 sm:mt-0">
+                  <div className="flex flex-wrap gap-1 sm:gap-2 mt-2 sm:mt-0 w-full">
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-green-400 hover:bg-green-900/20"
+                      className="text-green-400 hover:bg-green-900/20 flex-1 min-w-[90px] max-w-[160px]"
                       onClick={() => playGroupFiles(group.files)}
                       disabled={group.files.filter(f => f.fileType.toLowerCase().includes('mp3')).length === 0}
                     >
@@ -1423,7 +1423,7 @@ export const FilesManager = memo(function FilesManager() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-blue-400 hover:bg-blue-900/20"
+                      className="text-blue-400 hover:bg-blue-900/20 flex-1 min-w-[90px] max-w-[160px]"
                       onClick={() => handleGroupDownload(group.files, 'zip')}
                       disabled={processingAction === 'group-download'}
                     >
@@ -1437,7 +1437,7 @@ export const FilesManager = memo(function FilesManager() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-indigo-400 hover:bg-indigo-900/20"
+                      className="text-indigo-400 hover:bg-indigo-900/20 flex-1 min-w-[90px] max-w-[160px]"
                       onClick={() => handleGroupDownload(group.files, 'sequential')}
                       disabled={processingAction === 'sequential-download'}
                     >
@@ -1451,7 +1451,7 @@ export const FilesManager = memo(function FilesManager() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-red-400 hover:bg-red-900/20"
+                      className="text-red-400 hover:bg-red-900/20 flex-1 min-w-[90px] max-w-[160px]"
                       onClick={() => handleGroupDelete(group.files)}
                       disabled={processingAction === 'group-delete'}
                     >

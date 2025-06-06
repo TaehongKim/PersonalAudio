@@ -64,8 +64,15 @@ model DownloadQueue {
   file      File?     @relation(fields: [fileId], references: [id])
 }
 
+model User {
+  id        String     @id @default(cuid())
+  playlists Playlist[]
+}
+
 model Playlist {
   id          String         @id @default(cuid())
+  userId      String         // 추가
+  user        User           @relation(fields: [userId], references: [id])
   name        String
   description String?
   isSystem    Boolean        @default(false)  // 시스템 플레이리스트 여부

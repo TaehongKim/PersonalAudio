@@ -58,6 +58,12 @@ export function PlaylistProvider({ children }: { children: ReactNode }) {
       setError(null);
       
       const response = await fetch('/api/playlists');
+      if (response.status === 401) {
+        setPlaylists([]); // 비로그인 시 빈 배열
+        setError(null);
+        setLoading(false);
+        return;
+      }
       if (!response.ok) {
         throw new Error('플레이리스트를 불러올 수 없습니다.');
       }

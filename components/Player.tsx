@@ -50,64 +50,7 @@ export const Player = memo(function Player() {
     toggleRepeat,
     toggleShuffle
   } = usePlayer()
-  const audioRef = useRef<HTMLAudioElement>(null)
   const isMobile = useMediaQuery("(max-width: 768px)")
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = state.volume
-      if (state.isPlaying) {
-        audioRef.current.play()
-      } else {
-        audioRef.current.pause()
-      }
-    }
-  }, [state.isPlaying])
-
-  useEffect(() => {
-    if (audioRef.current && state.currentFile) {
-      audioRef.current.src = `/api/files/${state.currentFile.id}/stream`
-      audioRef.current.load()
-      if (state.isPlaying) {
-        audioRef.current.play()
-      }
-    }
-  }, [state.currentFile, state.isPlaying])
-
-  // 메모화된 시간 업데이트 핸들러
-  const handleTimeUpdate = useCallback(() => {
-    if (audioRef.current) {
-      seek(audioRef.current.currentTime)
-    }
-  }, [seek])
-
-  // 메모화된 볼륨 변경 핸들러
-  const handleVolumeChange = useCallback((value: number[]) => {
-    const volume = value[0]
-    setVolume(volume)
-  }, [setVolume])
-
-  // 메모화된 진행률 변경 핸들러
-  const handleProgressChange = useCallback((value: number[]) => {
-    if (audioRef.current) {
-      const time = value[0]
-      seek(time)
-    }
-  }, [seek])
-
-  // 재생/일시정지 핸들러 (useCallback으로 미리 선언)
-  const handlePlayPause = useCallback(() => {
-    if (state.isPlaying) {
-      pause();
-    } else {
-      play();
-    }
-  }, [state.isPlaying, pause, play]);
-
-  // 볼륨 토글 핸들러 (useCallback으로 미리 선언)
-  const handleVolumeToggle = useCallback(() => {
-    handleVolumeChange([state.volume === 0 ? 1 : 0]);
-  }, [handleVolumeChange, state.volume]);
 
   // 메모화된 계산 값들
   const hasPlaylist = useMemo(() => state.playlist.length > 1, [state.playlist.length])
@@ -118,16 +61,6 @@ export const Player = memo(function Player() {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border p-2 md:p-4 z-50">
-      <audio
-        ref={audioRef}
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={() => {
-          if (audioRef.current) {
-            seek(0)
-          }
-        }}
-      />
-      
       <div className="flex flex-col md:flex-row items-center justify-between max-w-7xl mx-auto gap-2 md:gap-4">
         {/* 파일 정보 섹션 */}
         <div className="flex items-center gap-2 md:gap-4 min-w-0 flex-1 w-full md:w-auto">
@@ -196,7 +129,13 @@ export const Player = memo(function Player() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={handlePlayPause}
+              onClick={() => {
+                if (state.isPlaying) {
+                  pause();
+                } else {
+                  play();
+                }
+              }}
               className="h-8 w-8 md:h-10 md:w-10 bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {state.isPlaying ? <Pause className="h-4 w-4 md:h-5 md:w-5" /> : <Play className="h-4 w-4 md:h-5 md:w-5" />}
@@ -249,7 +188,9 @@ export const Player = memo(function Player() {
               min={0}
               max={state.duration || 100}
               step={1}
-              onValueChange={handleProgressChange}
+              onValueChange={(value) => {
+                seek(value[0])
+              }}
               className="flex-1"
             />
             <span className="text-xs text-muted-foreground min-w-[30px] md:min-w-[40px]">
@@ -263,7 +204,9 @@ export const Player = memo(function Player() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={handleVolumeToggle}
+            onClick={() => {
+              setVolume(state.volume === 0 ? 1 : 0)
+            }}
             className="h-8 w-8"
           >
             {state.volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
@@ -274,7 +217,9 @@ export const Player = memo(function Player() {
             min={0}
             max={1}
             step={0.1}
-            onValueChange={handleVolumeChange}
+            onValueChange={(value) => {
+              setVolume(value[0])
+            }}
             className="w-20"
           />
         </div>

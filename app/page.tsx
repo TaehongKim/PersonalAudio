@@ -10,7 +10,6 @@ import { FilesManager } from "../components/FilesManager"
 import { SharesManager } from "../components/SharesManager"
 import { SettingsManager } from "../components/SettingsManager"
 import { ShareLinkAccess } from "../components/ShareLinkAccess"
-import { PlayerControls } from "../components/PlayerControls"
 import { LoginScreen } from "@/components/LoginScreen"
 import { MobileNavigation } from "../components/MobileNavigation"
 import { HomeContent } from "../components/HomeContent"
@@ -22,6 +21,7 @@ import { useSession } from "@/hooks/useSession"
 import { useTheme } from "@/contexts/ThemeContext"
 import { PlaylistProvider } from "@/contexts/PlaylistContext"
 import { Toaster } from "react-hot-toast"
+import { MusicPlayerPage } from "../components/MusicPlayerPage"
 
 // 모바일 헤더 컴포넌트
 function MobileHeader({ activeTab, onMenuClick }: { activeTab: string, onMenuClick: () => void }) {
@@ -39,6 +39,7 @@ function MobileHeader({ activeTab, onMenuClick }: { activeTab: string, onMenuCli
       case "downloads": return "다운로드"
       case "shares": return "공유 관리"
       case "settings": return "설정"
+      case "player": return "음악 플레이어"
       default: return "귀요미 YC 음악방"
     }
   }
@@ -155,7 +156,6 @@ export default function Home() {
           <div className="flex flex-1 overflow-hidden">
             <ShareLinkAccess code={shareCode || ''} />
           </div>
-          <PlayerControls />
           <Toaster 
             position="top-right"
             toastOptions={{
@@ -206,6 +206,7 @@ export default function Home() {
                   <SettingsManagerLazy handleLogout={handleLogout} />
                 </Suspense>
               )}
+              {activeTab === "player" && <Suspense fallback={<PageSkeleton />}><MusicPlayerPage /></Suspense>}
             </div>
             
             {/* 모바일 네비게이션 */}
@@ -214,11 +215,6 @@ export default function Home() {
                 <MobileNavigation activeTab={activeTab} setActiveTab={setActiveTab} />
               </div>
             )}
-            
-            {/* 플레이어 */}
-            <div className="fixed bottom-0 left-0 right-0 z-50">
-              <PlayerControls />
-            </div>
           </div>
         </main>
         

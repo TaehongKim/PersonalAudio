@@ -1,6 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react'
+import { useSession } from "@/hooks/useSession"
 
 interface FileData {
   id: string
@@ -74,6 +75,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const currentMediaRef = state.currentFile?.fileType.toLowerCase().includes('mp3') 
     ? audioRef 
     : videoRef
+
+  const { isLoggedIn, isLoading: sessionLoading } = useSession();
 
   // 재생 기록 저장 함수
   const recordPlayHistory = useCallback(async (fileId: string, duration?: number, completed: boolean = false) => {
@@ -164,9 +167,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       // 다음 파일 로드
       const nextFile = currentPlaylist[nextIndex]
       if (nextFile) {
-        // 파일 로드를 별도로 처리
         setTimeout(() => {
           loadFileInternal(nextFile)
+          setTimeout(() => {
+            const media = nextFile.fileType.toLowerCase().includes('mp3') ? audioRef.current : videoRef.current
+            if (media) media.play().catch(() => {})
+          }, 200)
         }, 50)
       }
       
@@ -175,7 +181,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         currentIndex: nextIndex
       }
     })
-  }, [loadFileInternal])
+  }, [loadFileInternal, audioRef, videoRef])
 
   // 미디어 이벤트 핸들러
   useEffect(() => {
@@ -277,6 +283,79 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentMediaRef, state.currentFile, handleNext, recordPlayHistory])
 
+  // 1. playlist 변경 시 localStorage 저장 + 서버 동기화
+  useEffect(() => {
+    try {
+      localStorage.setItem('playlist', JSON.stringify(state.playlist))
+    } catch (e) {}
+    // 서버에도 동기화 (로그인 상태에서만)
+    if (isLoggedIn && state.playlist && state.playlist.length > 0) {
+      fetch('/api/playlists/recent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: state.playlist })
+      }).catch((err) => {
+        // 401 등 인증 에러는 무시
+      })
+    }
+  }, [state.playlist, isLoggedIn])
+
+  // 플레이리스트 로딩
+  const loadPlaylist = useCallback((files: FileData[], startIndex = 0) => {
+    console.log('플레이리스트 로드:', { fileCount: files.length, startIndex })
+    // 항상 playlist를 세팅하도록 수정
+    if (files.length === 0) {
+      setState(prev => ({
+        ...prev,
+        playlist: [],
+        currentIndex: -1,
+        currentFile: null,
+        isPlaying: false,
+        currentTime: 0,
+        duration: 0,
+        error: null
+      }))
+      return
+    }
+    const validIndex = Math.max(0, Math.min(startIndex, files.length - 1))
+    setState(prev => ({
+      ...prev,
+      playlist: files,
+      currentIndex: validIndex
+    }))
+    loadFileInternal(files[validIndex])
+  }, [loadFileInternal])
+
+  // 2. 마운트 시 localStorage에 없으면 서버에서 복원 (로그인 상태에서만)
+  useEffect(() => {
+    if (sessionLoading) return;
+    if (!isLoggedIn) {
+      // 비로그인: localStorage만 사용
+      try {
+        const saved = localStorage.getItem('playlist')
+        if (saved) {
+          const files = JSON.parse(saved)
+          if (Array.isArray(files) && files.length > 0) {
+            loadPlaylist(files, 0)
+          }
+        }
+      } catch (e) {}
+      return;
+    }
+    // 로그인: 서버에서 복원 시도
+    fetch('/api/playlists/recent')
+      .then(res => {
+        if (res.status === 401) return null // 인증 안 된 경우 무시
+        return res.json()
+      })
+      .then(data => {
+        if (data && data.files && Array.isArray(data.files) && data.files.length > 0) {
+          loadPlaylist(data.files, 0)
+        }
+      })
+      .catch(() => {})
+  }, [isLoggedIn, sessionLoading, loadPlaylist])
+
   // 기본 컨트롤 함수들
   const play = () => {
     const media = currentMediaRef.current
@@ -351,21 +430,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // 플레이리스트 로딩
-  const loadPlaylist = useCallback((files: FileData[], startIndex = 0) => {
-    console.log('플레이리스트 로드:', { fileCount: files.length, startIndex })
-    if (files.length === 0) return
-
-    const validIndex = Math.max(0, Math.min(startIndex, files.length - 1))
-    setState(prev => ({ 
-      ...prev, 
-      playlist: files,
-      currentIndex: validIndex
-    }))
-
-    loadFileInternal(files[validIndex])
-  }, [loadFileInternal])
-
   // 이전 곡
   const previous = useCallback(() => {
     setState(prevState => {
@@ -397,9 +461,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       // 이전 파일 로드
       const prevFile = currentPlaylist[prevIndex]
       if (prevFile) {
-        // 파일 로드를 별도로 처리
         setTimeout(() => {
           loadFileInternal(prevFile)
+          setTimeout(() => {
+            const media = prevFile.fileType.toLowerCase().includes('mp3') ? audioRef.current : videoRef.current
+            if (media) media.play().catch(() => {})
+          }, 200)
         }, 50)
       }
 
@@ -408,7 +475,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         currentIndex: prevIndex
       }
     })
-  }, [loadFileInternal])
+  }, [loadFileInternal, audioRef, videoRef])
 
   const next = useCallback(() => {
     handleNext()
