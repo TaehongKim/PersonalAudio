@@ -456,10 +456,12 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
   
   try {
     // 작업 상태 업데이트
-    await prisma.downloadQueue.update({
-      where: { id: queueId },
-      data: { status: DownloadStatus.PROCESSING, progress: 0 }
-    });
+    try {
+      await prisma.downloadQueue.update({ where: { id: queueId }, data: { status: DownloadStatus.PROCESSING, progress: 0 } });
+    } catch (e: any) {
+      if (e.code === 'P2025') return;
+      throw e;
+    }
     
     // 소켓 이벤트 발신
     emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, 0);
@@ -495,14 +497,19 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
         });
         
         // 다운로드 완료 업데이트
-        await prisma.downloadQueue.update({
-          where: { id: queueId },
-          data: {
-            status: DownloadStatus.COMPLETED,
-            progress: 100,
-            fileId: copiedFile.id
-          }
-        });
+        try {
+          await prisma.downloadQueue.update({
+            where: { id: queueId },
+            data: {
+              status: DownloadStatus.COMPLETED,
+              progress: 100,
+              fileId: copiedFile.id
+            }
+          });
+        } catch (e: any) {
+          if (e.code === 'P2025') return;
+          throw e;
+        }
         
         // 소켓 이벤트 발신
         emitDownloadStatusUpdate(queueId, DownloadStatus.COMPLETED, 100, { fileId: copiedFile.id });
@@ -663,14 +670,19 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
               // (삭제하지 않음)
               
               // 다운로드 완료 업데이트
-              await prisma.downloadQueue.update({
-                where: { id: queueId },
-                data: {
-                  status: DownloadStatus.COMPLETED,
-                  progress: 100,
-                  fileId: fileInfo.id
-                }
-              });
+              try {
+                await prisma.downloadQueue.update({
+                  where: { id: queueId },
+                  data: {
+                    status: DownloadStatus.COMPLETED,
+                    progress: 100,
+                    fileId: fileInfo.id
+                  }
+                });
+              } catch (e: any) {
+                if (e.code === 'P2025') return;
+                throw e;
+              }
               
               // 소켓 이벤트 발신
               emitDownloadStatusUpdate(queueId, DownloadStatus.COMPLETED, 100, { fileId: fileInfo.id });
@@ -685,13 +697,18 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
             } catch (error: any) {
               console.error('파일 정보 저장 오류:', error);
               
-              await prisma.downloadQueue.update({
-                where: { id: queueId },
-                data: {
-                  status: DownloadStatus.FAILED,
-                  error: `파일 정보 저장 중 오류 발생: ${error.message || '알 수 없는 오류'}`
-                }
-              });
+              try {
+                await prisma.downloadQueue.update({
+                  where: { id: queueId },
+                  data: {
+                    status: DownloadStatus.FAILED,
+                    error: `파일 정보 저장 중 오류 발생: ${error.message || '알 수 없는 오류'}`
+                  }
+                });
+              } catch (e: any) {
+                if (e.code === 'P2025') return;
+                throw e;
+              }
               
               emitDownloadStatusUpdate(queueId, DownloadStatus.FAILED, 0);
               emitDownloadError(queueId, `파일 정보 저장 중 오류 발생: ${error.message || '알 수 없는 오류'}`);
@@ -701,13 +718,18 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
           } else {
             const errorMessage = `다운로드 실패: yt-dlp가 코드 ${code}로 종료됨`;
             
-            await prisma.downloadQueue.update({
-              where: { id: queueId },
-              data: {
-                status: DownloadStatus.FAILED,
-                error: errorMessage
-              }
-            });
+            try {
+              await prisma.downloadQueue.update({
+                where: { id: queueId },
+                data: {
+                  status: DownloadStatus.FAILED,
+                  error: errorMessage
+                }
+              });
+            } catch (e: any) {
+              if (e.code === 'P2025') return;
+              throw e;
+            }
             
             emitDownloadStatusUpdate(queueId, DownloadStatus.FAILED, 0);
             emitDownloadError(queueId, errorMessage);
@@ -724,13 +746,18 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
       
       const errorMessage = `다운로드 실패: 필요한 유틸리티가 없습니다 (${missingUtils.join(', ')})`;
       
-      await prisma.downloadQueue.update({
-        where: { id: queueId },
-        data: {
-          status: DownloadStatus.FAILED,
-          error: errorMessage
-        }
-      });
+      try {
+        await prisma.downloadQueue.update({
+          where: { id: queueId },
+          data: {
+            status: DownloadStatus.FAILED,
+            error: errorMessage
+          }
+        });
+      } catch (e: any) {
+        if (e.code === 'P2025') return;
+        throw e;
+      }
       
       emitDownloadStatusUpdate(queueId, DownloadStatus.FAILED, 0);
       emitDownloadError(queueId, errorMessage);
@@ -748,13 +775,18 @@ export async function downloadYoutubeMp3(queueId: string, url: string, options: 
     console.error('MP3 다운로드 실패:', error);
     
     // 오류 상태 업데이트
-    await prisma.downloadQueue.update({
-      where: { id: queueId },
-      data: {
-        status: DownloadStatus.FAILED,
-        error: error.message || '알 수 없는 오류'
-      }
-    });
+    try {
+      await prisma.downloadQueue.update({
+        where: { id: queueId },
+        data: {
+          status: DownloadStatus.FAILED,
+          error: error.message || '알 수 없는 오류'
+        }
+      });
+    } catch (e: any) {
+      if (e.code === 'P2025') return;
+      throw e;
+    }
     
     emitDownloadStatusUpdate(queueId, DownloadStatus.FAILED, 0);
     emitDownloadError(queueId, error.message || '알 수 없는 오류');
@@ -771,10 +803,12 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
 
   try {
     // 작업 상태 업데이트
-    await prisma.downloadQueue.update({
-      where: { id: queueId },
-      data: { status: DownloadStatus.PROCESSING, progress: 0 }
-    });
+    try {
+      await prisma.downloadQueue.update({ where: { id: queueId }, data: { status: DownloadStatus.PROCESSING, progress: 0 } });
+    } catch (e: any) {
+      if (e.code === 'P2025') return;
+      throw e;
+    }
     
     // 소켓 이벤트 발신
     emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, 0);
@@ -874,14 +908,19 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
                   }
                 });
 
-                await prisma.downloadQueue.update({
-                  where: { id: queueId },
-                  data: {
-                    status: DownloadStatus.COMPLETED,
-                    progress: 100,
-                    fileId: file.id
-                  }
-                });
+                try {
+                  await prisma.downloadQueue.update({
+                    where: { id: queueId },
+                    data: {
+                      status: DownloadStatus.COMPLETED,
+                      progress: 100,
+                      fileId: file.id
+                    }
+                  });
+                } catch (e: any) {
+                  if (e.code === 'P2025') return;
+                  throw e;
+                }
 
                 emitDownloadStatusUpdate(queueId, DownloadStatus.COMPLETED, 100, { fileId: file.id });
                 emitDownloadComplete(queueId, file.id, file);
@@ -894,13 +933,18 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
                 const detailedError = `${failureReason}. yt-dlp stderr: ${ytdlpStderr || '(내용 없음)'}`;
                 console.error(`[다운로드 ${queueId}] 실패: ${detailedError} 경로: ${outputPath}`);
                 
-                await prisma.downloadQueue.update({
-                  where: { id: queueId },
-                  data: {
-                    status: DownloadStatus.FAILED,
-                    error: detailedError // 상세 오류 메시지 저장
-                  }
-                });
+                try {
+                  await prisma.downloadQueue.update({
+                    where: { id: queueId },
+                    data: {
+                      status: DownloadStatus.FAILED,
+                      error: detailedError // 상세 오류 메시지 저장
+                    }
+                  });
+                } catch (e: any) {
+                  if (e.code === 'P2025') return;
+                  throw e;
+                }
                 emitDownloadError(queueId, detailedError);
 
                 // 임시 파일 삭제 시도 (파일이 실제로 0바이트로 존재한다면)
@@ -915,13 +959,18 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
               
               const detailedError = `데이터베이스 저장 실패: ${dbError instanceof Error ? dbError.message : '알 수 없는 오류'}. yt-dlp stderr: ${ytdlpStderr || ' (내용 없음)'}`;
               console.error('[다운로드 ${queueId}] DB 오류:', detailedError);
-              await prisma.downloadQueue.update({
-                where: { id: queueId },
-                data: { 
-                  status: DownloadStatus.FAILED, 
-                  error: detailedError 
-                }
-              });
+              try {
+                await prisma.downloadQueue.update({
+                  where: { id: queueId },
+                  data: { 
+                    status: DownloadStatus.FAILED, 
+                    error: detailedError 
+                  }
+                });
+              } catch (e: any) {
+                if (e.code === 'P2025') return;
+                throw e;
+              }
               emitDownloadError(queueId, detailedError);
               reject(dbError);
             }
@@ -929,13 +978,18 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
             // 작업 실패 상태 업데이트
             const detailedError = `yt-dlp 프로세스가 코드 ${code}로 종료됨. Stderr: ${ytdlpStderr || '(내용 없음)'}`;
             console.error(`[다운로드 ${queueId}] yt-dlp 실패: ${detailedError}`);
-            await prisma.downloadQueue.update({
-              where: { id: queueId },
-              data: { 
-                status: DownloadStatus.FAILED, 
-                error: detailedError 
-              }
-            });
+            try {
+              await prisma.downloadQueue.update({
+                where: { id: queueId },
+                data: { 
+                  status: DownloadStatus.FAILED, 
+                  error: detailedError 
+                }
+              });
+            } catch (e: any) {
+              if (e.code === 'P2025') return;
+              throw e;
+            }
             emitDownloadError(queueId, detailedError);
             reject(new Error(detailedError));
           }
@@ -952,10 +1006,15 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
         const interval = setInterval(async () => {
           progress += 5;
           
-          await prisma.downloadQueue.update({
-            where: { id: queueId },
-            data: { progress }
-          });
+          try {
+            await prisma.downloadQueue.update({
+              where: { id: queueId },
+              data: { progress }
+            });
+          } catch (e: any) {
+            if (e.code === 'P2025') return;
+            throw e;
+          }
           
           // 소켓 이벤트 발신
           emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, progress);
@@ -987,14 +1046,19 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
             });
             
             // 작업 완료 상태 업데이트
-            await prisma.downloadQueue.update({
-              where: { id: queueId },
-              data: { 
-                status: DownloadStatus.COMPLETED, 
-                progress: 100,
-                fileId: file.id
-              }
-            });
+            try {
+              await prisma.downloadQueue.update({
+                where: { id: queueId },
+                data: { 
+                  status: DownloadStatus.COMPLETED, 
+                  progress: 100,
+                  fileId: file.id
+                }
+              });
+            } catch (e: any) {
+              if (e.code === 'P2025') return;
+              throw e;
+            }
             
             // 소켓 이벤트 발신
             emitDownloadStatusUpdate(queueId, DownloadStatus.COMPLETED, 100, { fileId: file.id });
@@ -1021,13 +1085,18 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
     console.error('비디오 다운로드 오류:', error);
     
     // 작업 실패 상태 업데이트
-    await prisma.downloadQueue.update({
-      where: { id: queueId },
-      data: { 
-        status: DownloadStatus.FAILED, 
-        error: error instanceof Error ? error.message : '알 수 없는 오류' 
-      }
-    });
+    try {
+      await prisma.downloadQueue.update({
+        where: { id: queueId },
+        data: { 
+          status: DownloadStatus.FAILED, 
+          error: error instanceof Error ? error.message : '알 수 없는 오류' 
+        }
+      });
+    } catch (e: any) {
+      if (e.code === 'P2025') return;
+      throw e;
+    }
     
     // 소켓 이벤트 발신
     emitDownloadError(queueId, error instanceof Error ? error.message : '알 수 없는 오류');
@@ -1042,10 +1111,12 @@ export async function downloadYoutubeVideo(queueId: string, url: string, options
 export async function downloadPlaylistMp3(queueId: string, url: string) {
   try {
     // 작업 상태 업데이트
-    await prisma.downloadQueue.update({
-      where: { id: queueId },
-      data: { status: DownloadStatus.PROCESSING, progress: 0 }
-    });
+    try {
+      await prisma.downloadQueue.update({ where: { id: queueId }, data: { status: DownloadStatus.PROCESSING, progress: 0 } });
+    } catch (e: any) {
+      if (e.code === 'P2025') return;
+      throw e;
+    }
     
     // 소켓 이벤트 발신
     emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, 0);
@@ -1201,13 +1272,18 @@ export async function downloadPlaylistMp3(queueId: string, url: string) {
     console.error('플레이리스트 MP3 다운로드 오류:', error);
     
     // 작업 실패 상태 업데이트
-    await prisma.downloadQueue.update({
-      where: { id: queueId },
-      data: { 
-        status: DownloadStatus.FAILED, 
-        error: error instanceof Error ? error.message : '알 수 없는 오류' 
-      }
-    });
+    try {
+      await prisma.downloadQueue.update({
+        where: { id: queueId },
+        data: { 
+          status: DownloadStatus.FAILED, 
+          error: error instanceof Error ? error.message : '알 수 없는 오류' 
+        }
+      });
+    } catch (e: any) {
+      if (e.code === 'P2025') return;
+      throw e;
+    }
     
     // 소켓 이벤트 발신
     emitDownloadError(queueId, error instanceof Error ? error.message : '알 수 없는 오류');
@@ -1222,10 +1298,12 @@ export async function downloadPlaylistMp3(queueId: string, url: string) {
 export async function downloadPlaylistVideo(queueId: string, url: string, options: any = {}) {
   try {
     // 작업 상태 업데이트
-    await prisma.downloadQueue.update({
-      where: { id: queueId },
-      data: { status: DownloadStatus.PROCESSING, progress: 0 }
-    });
+    try {
+      await prisma.downloadQueue.update({ where: { id: queueId }, data: { status: DownloadStatus.PROCESSING, progress: 0 } });
+    } catch (e: any) {
+      if (e.code === 'P2025') return;
+      throw e;
+    }
     
     // 소켓 이벤트 발신
     emitDownloadStatusUpdate(queueId, DownloadStatus.PROCESSING, 0);
@@ -1384,13 +1462,18 @@ export async function downloadPlaylistVideo(queueId: string, url: string, option
     console.error('플레이리스트 비디오 다운로드 오류:', error);
     
     // 작업 실패 상태 업데이트
-    await prisma.downloadQueue.update({
-      where: { id: queueId },
-      data: { 
-        status: DownloadStatus.FAILED, 
-        error: error instanceof Error ? error.message : '알 수 없는 오류' 
-      }
-    });
+    try {
+      await prisma.downloadQueue.update({
+        where: { id: queueId },
+        data: { 
+          status: DownloadStatus.FAILED, 
+          error: error instanceof Error ? error.message : '알 수 없는 오류' 
+        }
+      });
+    } catch (e: any) {
+      if (e.code === 'P2025') return;
+      throw e;
+    }
     
     // 소켓 이벤트 발신
     emitDownloadError(queueId, error instanceof Error ? error.message : '알 수 없는 오류');
@@ -1408,12 +1491,17 @@ export async function cancelDownload(id: string) {
     processMap.delete(id);
   }
   // DB 상태 변경
-  return prisma.downloadQueue.update({
-    where: { id },
-    data: {
-      status: DownloadStatus.FAILED,
-      error: '사용자에 의해 취소됨',
-    },
-  });
+  try {
+    return await prisma.downloadQueue.update({
+      where: { id },
+      data: {
+        status: DownloadStatus.FAILED,
+        error: '사용자에 의해 취소됨',
+      },
+    });
+  } catch (e: any) {
+    if (e.code === 'P2025') return;
+    throw e;
+  }
 }
 
